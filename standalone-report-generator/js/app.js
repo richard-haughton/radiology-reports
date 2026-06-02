@@ -2,6 +2,7 @@ var _uid = null;
 var _templates = [];
 var _pendingTemplateSelection = '';
 var _unsubscribeTemplates = null;
+var _draftTemplatePhraseHandlingIds = null;
 var _phraseHandlings = [];
 var _pendingPhraseHandlingSelection = '';
 var _unsubscribePhraseHandlings = null;
@@ -121,6 +122,9 @@ function bindReportEvents() {
   var savePhraseBtn = document.getElementById('btn-save-phrase-handling');
   if (savePhraseBtn) savePhraseBtn.addEventListener('click', handleSavePhraseHandling);
 
+  var generatePhraseBtn = document.getElementById('btn-generate-phrase-handling');
+  if (generatePhraseBtn) generatePhraseBtn.addEventListener('click', handleGeneratePhraseHandling);
+
   var newPhraseBtn = document.getElementById('btn-new-phrase-handling');
   if (newPhraseBtn) newPhraseBtn.addEventListener('click', handleNewPhraseHandling);
 
@@ -133,6 +137,11 @@ function bindReportEvents() {
       _pendingPhraseHandlingSelection = String(phraseSelect.value || '').trim();
       populatePhraseHandlingEditorFromSelection();
     });
+  }
+
+  var phraseChecklist = document.getElementById('phrase-handling-checklist');
+  if (phraseChecklist) {
+    phraseChecklist.addEventListener('change', handlePhraseChecklistChange);
   }
 }
 
@@ -208,8 +217,75 @@ function teardownUserSubscriptions() {
   }
   _templates = [];
   _pendingTemplateSelection = '';
+  _draftTemplatePhraseHandlingIds = null;
   _phraseHandlings = [];
   _pendingPhraseHandlingSelection = '';
+}
+
+function normalizePhraseHandlingIds(value) {
+  if (!Array.isArray(value)) return [];
+
+  var seen = {};
+  return value.map(function(item) {
+    return String(item || '').trim();
+  }).filter(function(item) {
+    if (!item || seen[item]) return false;
+    seen[item] = true;
+    return true;
+  });
+}
+
+function getDefaultPhraseHandlingSelectionIds() {
+  return _phraseHandlings.map(function(item) {
+    return String(item.id || '').trim();
+  }).filter(Boolean);
+}
+
+function getTemplatePhraseHandlingIds(template) {
+  if (!template) return getDefaultPhraseHandlingSelectionIds();
+  if (template.hasSelectedPhraseHandlingIds) {
+    return normalizePhraseHandlingIds(template.selectedPhraseHandlingIds);
+  }
+  return getDefaultPhraseHandlingSelectionIds();
+}
+
+function setDraftTemplatePhraseHandlingIds(ids) {
+  _draftTemplatePhraseHandlingIds = normalizePhraseHandlingIds(ids);
+}
+
+function getDraftTemplatePhraseHandlingIds() {
+  return normalizePhraseHandlingIds(_draftTemplatePhraseHandlingIds || []);
+}
+
+function getSelectedPhraseHandlingIds() {
+  var container = document.getElementById('phrase-handling-checklist');
+  if (container) {
+    return normalizePhraseHandlingIds(Array.prototype.map.call(
+      container.querySelectorAll('input.phrase-check:checked'),
+      function(cb) { return cb.value; }
+    ));
+  }
+
+  return getDraftTemplatePhraseHandlingIds();
+}
+
+async function persistSelectedPhraseHandlingIdsForCurrentTemplate() {
+  if (!_uid) return;
+
+  var selectedTemplate = getSelectedTemplate();
+  if (!selectedTemplate || !selectedTemplate.id) return;
+
+  var selectedIds = getSelectedPhraseHandlingIds();
+  setDraftTemplatePhraseHandlingIds(selectedIds);
+
+  try {
+    await reportTemplatesRef(_uid).doc(selectedTemplate.id).set({
+      selectedPhraseHandlingIds: selectedIds,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (err) {
+    setReportStatus((err && err.message) || 'Failed to save phrase handling selection.', true);
+  }
 }
 
 function userRef(uid) {
@@ -231,6 +307,8 @@ function subscribeTemplates() {
       data.name = String(data.name || '').trim() || 'Untitled Template';
       data.body = String(data.body || '');
       data.rulesText = String(data.rulesText || '');
+      data.hasSelectedPhraseHandlingIds = Array.isArray(data.selectedPhraseHandlingIds);
+      data.selectedPhraseHandlingIds = normalizePhraseHandlingIds(data.selectedPhraseHandlingIds);
       return data;
     }).sort(function(a, b) {
       return a.name.localeCompare(b.name);
@@ -284,11 +362,15 @@ function populateTemplateEditorFromSelection() {
   if (!selected) {
     nameEl.value = '';
     bodyEl.value = '';
+    setDraftTemplatePhraseHandlingIds(getDefaultPhraseHandlingSelectionIds());
+    renderPhraseHandlingChecklist();
     return;
   }
 
   nameEl.value = String(selected.name || '');
   bodyEl.value = String(selected.body || '');
+  setDraftTemplatePhraseHandlingIds(getTemplatePhraseHandlingIds(selected));
+  renderPhraseHandlingChecklist();
 }
 
 function getTemplateEditorState() {
@@ -304,6 +386,7 @@ function handleNewTemplate() {
   var select = document.getElementById('report-template-select');
   if (select) select.value = '';
   _pendingTemplateSelection = '';
+  setDraftTemplatePhraseHandlingIds(getDefaultPhraseHandlingSelectionIds());
   populateTemplateEditorFromSelection();
 }
 
@@ -337,6 +420,7 @@ async function handleSaveTemplate() {
   var payload = {
     name: name,
     body: state.body,
+    selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     createdAt: selected && selected.createdAt ? selected.createdAt : firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -406,6 +490,7 @@ async function handleImportTemplateFile(event) {
       name: name,
       body: body,
       rulesText: '',
+      selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -557,10 +642,33 @@ function subscribePhraseHandlings() {
     });
 
     renderPhraseHandlingOptions();
+    syncDraftPhraseHandlingSelection();
     renderPhraseHandlingChecklist();
   }, function(err) {
     console.error('phrase handlings subscription error:', err);
   });
+}
+
+function syncDraftPhraseHandlingSelection() {
+  var selectedTemplate = getSelectedTemplate();
+  if (_draftTemplatePhraseHandlingIds === null) {
+    setDraftTemplatePhraseHandlingIds(getTemplatePhraseHandlingIds(selectedTemplate));
+    return;
+  }
+
+  var available = getDefaultPhraseHandlingSelectionIds();
+  var availableMap = {};
+  available.forEach(function(id) { availableMap[id] = true; });
+
+  var filtered = getDraftTemplatePhraseHandlingIds().filter(function(id) {
+    return !!availableMap[id];
+  });
+
+  if (!filtered.length && _phraseHandlings.length && !selectedTemplate) {
+    filtered = getDefaultPhraseHandlingSelectionIds();
+  }
+
+  setDraftTemplatePhraseHandlingIds(filtered);
 }
 
 function renderPhraseHandlingOptions() {
@@ -589,19 +697,20 @@ function renderPhraseHandlingChecklist() {
   if (!container) return;
 
   if (!_phraseHandlings.length) {
+    setDraftTemplatePhraseHandlingIds([]);
     container.innerHTML = '<p class="phrase-checklist-empty muted">No phrase handling saved yet.</p>';
     return;
   }
 
-  // Preserve current checked state across re-renders.
   var checked = {};
-  container.querySelectorAll('input.phrase-check').forEach(function(cb) {
-    checked[cb.value] = cb.checked;
+  syncDraftPhraseHandlingSelection();
+  getDraftTemplatePhraseHandlingIds().forEach(function(id) {
+    checked[id] = true;
   });
 
   var html = '';
   _phraseHandlings.forEach(function(p) {
-    var isChecked = p.id in checked ? checked[p.id] : true;
+    var isChecked = !!checked[p.id];
     html += '<label class="phrase-check-item">'
       + '<input type="checkbox" class="phrase-check" value="' + escapeHtmlAttr(p.id) + '"' + (isChecked ? ' checked' : '') + ' />'
       + ' ' + escapeHtmlText(p.name)
@@ -646,9 +755,40 @@ function getPhraseHandlingEditorState() {
 
 function handleNewPhraseHandling() {
   var select = document.getElementById('phrase-handling-select');
+  var generatorEl = document.getElementById('phrase-handling-generator-input');
   if (select) select.value = '';
+  if (generatorEl) generatorEl.value = '';
   _pendingPhraseHandlingSelection = '';
   populatePhraseHandlingEditorFromSelection();
+}
+
+async function handleGeneratePhraseHandling() {
+  var inputEl = document.getElementById('phrase-handling-generator-input');
+  var exampleText = inputEl ? String(inputEl.value || '').trim() : '';
+  if (!exampleText) {
+    setReportStatus('Enter an example phrase or rule to generate a phrase handling draft.', true);
+    return;
+  }
+
+  setReportStatus('Generating phrase handling draft...', false);
+
+  try {
+    var response = await generatePhraseHandlingDraftWithBrowserOpenAi({
+      provider: getSelectedAiProvider(),
+      model: getSelectedAiModel(),
+      exampleText: exampleText
+    });
+
+    var nameEl = document.getElementById('phrase-handling-name');
+    var textEl = document.getElementById('phrase-handling-text');
+    if (nameEl) nameEl.value = String(response.name || '').trim();
+    if (textEl) textEl.value = String(response.text || '').trim();
+
+    setReportStatus('Phrase handling draft generated. Review and save it.', false);
+    showToast('Phrase handling draft generated.');
+  } catch (err) {
+    setReportStatus((err && err.message) || 'Failed to generate phrase handling draft.', true);
+  }
 }
 
 async function handleSavePhraseHandling() {
@@ -710,18 +850,22 @@ async function handleDeletePhraseHandling() {
 }
 
 function getActivePhraseHandlingText() {
-  var container = document.getElementById('phrase-handling-checklist');
-  if (!container) return '';
-
   var lines = [];
-  container.querySelectorAll('input.phrase-check:checked').forEach(function(cb) {
-    var id = String(cb.value || '').trim();
+  getSelectedPhraseHandlingIds().forEach(function(id) {
     var ph = _phraseHandlings.find(function(p) { return p.id === id; });
     if (ph && String(ph.text || '').trim()) {
       lines.push(String(ph.text).trim());
     }
   });
   return lines.join('\n');
+}
+
+function handlePhraseChecklistChange(event) {
+  var target = event && event.target ? event.target : null;
+  if (!target || !target.classList || !target.classList.contains('phrase-check')) return;
+
+  setDraftTemplatePhraseHandlingIds(getSelectedPhraseHandlingIds());
+  persistSelectedPhraseHandlingIdsForCurrentTemplate();
 }
 
 function handleUseTemplateDirect() {
@@ -776,6 +920,20 @@ function buildReportPrompt(payload) {
   return {
     system: instructions.join('\n'),
     user: JSON.stringify(context)
+  };
+}
+
+function buildPhraseHandlingDraftPrompt(exampleText) {
+  return {
+    system: [
+      'You generate phrase-handling rules for a radiology report drafting assistant.',
+      'Return valid JSON only with this shape:',
+      '{"name":"...","text":"..."}',
+      'The name should be short and descriptive.',
+      'The text should be actionable instructions that tell the AI how to handle the phrase or concept.',
+      'Do not include markdown fences.'
+    ].join('\n'),
+    user: JSON.stringify({ exampleText: String(exampleText || '') })
   };
 }
 
@@ -844,6 +1002,60 @@ async function generateWithBrowserOpenAi(payload) {
   }
 
   return { data: { text: content, sections: {} } };
+}
+
+async function generatePhraseHandlingDraftWithBrowserOpenAi(payload) {
+  if (String(payload.provider || '').trim() !== 'openai') {
+    throw new Error('Only OpenAI provider is supported in browser-key mode.');
+  }
+
+  var apiKey = getOpenAiApiKey();
+  if (!apiKey) {
+    throw new Error('Enter an OpenAI API key to generate a phrase handling draft.');
+  }
+
+  var prompt = buildPhraseHandlingDraftPrompt(payload.exampleText || '');
+  var response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + apiKey
+    },
+    body: JSON.stringify({
+      model: String(payload.model || 'gpt-4o-mini').trim(),
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user }
+      ]
+    })
+  });
+
+  var data = await response.json().catch(function() { return {}; });
+  if (!response.ok) {
+    var msg = (data && data.error && data.error.message) || ('OpenAI request failed (' + response.status + ').');
+    throw new Error(msg);
+  }
+
+  var content = data && data.choices && data.choices[0] && data.choices[0].message
+    ? String(data.choices[0].message.content || '')
+    : '';
+
+  var parsed = extractJsonObject(content);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Phrase handling draft response was not valid JSON.');
+  }
+
+  var name = String(parsed.name || '').trim();
+  var text = String(parsed.text || '').trim();
+  if (!text) {
+    throw new Error('Phrase handling draft response did not include instructions.');
+  }
+
+  return {
+    name: name || 'Generated phrase handling',
+    text: text
+  };
 }
 
 function getSelectedAiProvider() {

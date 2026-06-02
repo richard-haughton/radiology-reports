@@ -6,6 +6,7 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
 
 - Standalone login flow (Google sign-in via Firebase Auth)
 - Report template CRUD (users/{uid}/reportTemplates)
+- Phrase handling CRUD (users/{uid}/phraseHandlings)
 - AI report generation with user-provided OpenAI API key (browser mode)
 - Mobile-friendly two-column layout that collapses to one column
 - Firebase config files for standalone project setup (`firebase.json`, `.firebaserc`)
@@ -90,5 +91,7 @@ jobs:
 
 - OpenAI keys entered in the app are used directly from the browser.
 - If "Remember on this device" is enabled, the key is saved in browser localStorage.
+- Templates can store their active phrase handling selection through `selectedPhraseHandlingIds` so each template can remember which phrase rules should be applied during generation.
+- Phrase handling drafts can be generated from an example phrase or rule and then saved for reuse.
 - Update model options or provider list in `js/app.js` as needed.
 - Set the Firebase project ID in `.firebaserc` before using default `firebase deploy` commands.

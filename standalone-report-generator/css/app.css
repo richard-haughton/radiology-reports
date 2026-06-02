@@ -262,6 +262,10 @@ textarea.form-input {
   font-size: 0.88rem;
 }
 
+.phrase-handling-note {
+  margin: 0 0 8px;
+}
+
 @media (max-width: 980px) {
   .report-layout {
     grid-template-columns: 1fr;

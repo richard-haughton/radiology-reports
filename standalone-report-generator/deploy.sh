@@ -3,7 +3,7 @@
 # Usage: ./deploy.sh [PROJECT_ID] [REGION] [SERVICE_NAME]
 set -euo pipefail
 
-PROJECT_ID="${1:-reports-f4b1a}"
+PROJECT_ID="${1:-reports-eadf8}"
 REGION="${2:-us-central1}"
 SERVICE_NAME="${3:-report-generator}"
 IMAGE="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
