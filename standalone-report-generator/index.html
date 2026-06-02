@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reports</title>
+  <meta name="description" content="Standalone report generator for radiology draft creation." />
+  <link rel="stylesheet" href="css/app.css?v=20260530a" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js?v=20260530a"></script>
+  <script src="js/app.js?v=20260530a"></script>
+</head>
+<body>
+  <div id="hipaa-warning" style="background:#b91c1c;color:#fff;font-weight:bold;text-align:center;padding:12px 16px;font-size:1.05rem;letter-spacing:0.01em;">
+    &#9888; WARNING: This application is NOT HIPAA compliant. Do NOT enter any patient health information (PHI) into this application.
+  </div>
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <h1>Report Generator</h1>
+      <p>Sign in to access your report templates.</p>
+      <button id="btn-google-sign-in" class="btn btn-accent" type="button">Sign in with Google</button>
+      <p id="auth-error" class="auth-error" style="display:none"></p>
+    </div>
+  </div>
+
+  <div id="app" class="app" style="display:none">
+    <header class="site-header">
+      <div>
+        <h1>Standalone Report Generator</h1>
+        <p class="subtitle">Draft structured radiology reports from findings and templates.</p>
+      </div>
+      <div class="header-actions">
+        <span id="user-name" class="user-name"></span>
+        <button id="btn-dark-toggle" class="btn btn-ghost btn-sm btn-theme-toggle" type="button" title="Toggle dark mode">🌙</button>
+        <button id="btn-sign-out" class="btn btn-ghost btn-sm" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <main class="report-layout">
+      <aside class="report-sidebar">
+        <section class="report-card">
+          <h2>Templates</h2>
+          <label class="form-label" for="report-template-select">Template</label>
+          <select id="report-template-select" class="form-input">
+            <option value="">No template</option>
+          </select>
+
+          <label class="form-label" for="manual-template-name">Template name</label>
+          <input id="manual-template-name" class="form-input" type="text" placeholder="Template name" />
+
+          <label class="form-label" for="manual-template-input">Template body</label>
+          <textarea id="manual-template-input" class="form-input" rows="6" placeholder="Paste or type template text..."></textarea>
+
+          <div class="row-actions">
+            <button id="btn-save-manual-template" class="btn btn-ghost btn-sm" type="button">Save / Update</button>
+            <button id="btn-new-manual-template" class="btn btn-ghost btn-sm" type="button">New</button>
+            <button id="btn-delete-manual-template" class="btn btn-danger btn-sm" type="button">Delete</button>
+          </div>
+
+          <div class="row-actions">
+            <button id="btn-report-template-import" class="btn btn-ghost btn-sm" type="button">Import .txt/.rtf</button>
+            <input id="report-template-import-input" type="file" accept=".rtf,.txt" style="display:none" />
+            <button id="btn-append-template-to-body" class="btn btn-ghost btn-sm" type="button">Append To Body</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="report-main">
+        <section class="report-card">
+          <h2>Generation</h2>
+
+          <label class="form-label" for="ai-provider-select">Provider</label>
+          <select id="ai-provider-select" class="form-input">
+            <option value="openai">OpenAI</option>
+          </select>
+
+          <label class="form-label" for="ai-model-input">Model</label>
+          <select id="ai-model-input" class="form-input">
+            <option value="gpt-5.5">ChatGPT 5.5 (default)</option>
+            <option value="gpt-5">ChatGPT 5</option>
+            <option value="gpt-5-mini">ChatGPT 5 mini</option>
+            <option value="gpt-4.5">GPT-4.5</option>
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4o-mini">GPT-4o mini</option>
+          </select>
+
+          <label class="form-label" for="openai-api-key-input">OpenAI API key</label>
+          <input id="openai-api-key-input" class="form-input" type="password" autocomplete="off" placeholder="sk-..." />
+          <div class="row-actions">
+            <label class="form-label" for="remember-openai-api-key" style="margin:0">
+              <input id="remember-openai-api-key" type="checkbox" /> Remember on this device
+            </label>
+            <button id="btn-clear-openai-api-key" class="btn btn-ghost btn-sm" type="button">Clear Saved Key</button>
+          </div>
+
+          <label class="form-label" for="report-findings-input">Findings input</label>
+          <textarea id="report-findings-input" class="form-input" rows="8" placeholder="Enter findings here..."></textarea>
+
+          <div class="row-2">
+            <label class="form-label" for="report-findings-language-mode">Findings handling
+              <select id="report-findings-language-mode" class="form-input">
+                <option value="keep">Keep exactly the same language</option>
+                <option value="improve" selected>Improve language</option>
+                <option value="omit">Do not include</option>
+              </select>
+            </label>
+
+            <label class="form-label" for="report-impression-mode">Impression handling
+              <select id="report-impression-mode" class="form-input">
+                <option value="concise" selected>Concise</option>
+                <option value="expound">Expound</option>
+                <option value="omit">Do not include</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="form-label">Active phrase handling</label>
+          <div id="phrase-handling-checklist" class="phrase-checklist">
+            <p class="phrase-checklist-empty muted">No phrase handling saved yet.</p>
+          </div>
+
+          <div class="row-actions">
+            <button id="btn-generate-report" class="btn btn-accent" type="button">Generate Report</button>
+            <button id="btn-use-template-direct" class="btn btn-ghost" type="button">Use Template Directly</button>
+            <button id="btn-copy-report" class="btn btn-ghost" type="button">Copy Output</button>
+          </div>
+          <p id="report-status" class="status"></p>
+        </section>
+
+        <section class="report-card">
+          <h2>Draft Report</h2>
+          <textarea id="report-output" class="form-input report-output" rows="18" placeholder="Generated report will appear here..."></textarea>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+</body>
+</html>
