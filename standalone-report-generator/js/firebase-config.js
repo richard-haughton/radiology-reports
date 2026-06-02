@@ -1,18 +1,17 @@
-// Copy this file to a real environment config for your standalone Firebase project.
-// Replace all values before deploying.
-// Note: AI generation now uses a user-provided OpenAI key in the browser,
-// so no aiProxyUrl is required in this config.
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
 
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCJp8al4zUdTYgAQFtSK9NqIcrusrObM9k",
-  authDomain: "reports-f4b1a.firebaseapp.com",
-  projectId: "reports-f4b1a",
-  storageBucket: "reports-f4b1a.firebasestorage.app",
-  messagingSenderId: "1023974104919",
-  appId: "1:1023974104919:web:e38fd1c5b0b77d67a4a812"
+  apiKey: "AIzaSyBEDnwbmXDxktlCoYR88ShxRlp2abzw490",
+  authDomain: "reports-eadf8.firebaseapp.com",
+  projectId: "reports-eadf8",
+  storageBucket: "reports-eadf8.firebasestorage.app",
+  messagingSenderId: "78116950355",
+  appId: "1:78116950355:web:8d96492b62ce812b5c51a6"
 };
 
-firebase.initializeApp(firebaseConfig);
-
-var appAuth = firebase.auth();
-var appDb = firebase.firestore();
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
