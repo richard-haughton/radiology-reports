@@ -7,7 +7,44 @@ var _phraseHandlings = [];
 var _pendingPhraseHandlingSelection = '';
 var _unsubscribePhraseHandlings = null;
 var _toastTimer = null;
-var OPENAI_KEY_STORAGE_KEY = 'reportGenerator.openAiApiKey';
+var AI_PROVIDER_CONFIG = {
+  openai: {
+    label: 'OpenAI',
+    keyLabel: 'OpenAI API key',
+    placeholder: 'sk-...',
+    defaultModel: 'gpt-4o-mini',
+    models: [
+      { value: 'gpt-5.5', label: 'ChatGPT 5.5 (default)' },
+      { value: 'gpt-5', label: 'ChatGPT 5' },
+      { value: 'gpt-5-mini', label: 'ChatGPT 5 mini' },
+      { value: 'gpt-4.5', label: 'GPT-4.5' },
+      { value: 'gpt-4o', label: 'GPT-4o' },
+      { value: 'gpt-4o-mini', label: 'GPT-4o mini' }
+    ]
+  },
+  anthropic: {
+    label: 'Claude / Anthropic',
+    keyLabel: 'Claude / Anthropic API key',
+    placeholder: 'sk-ant-...',
+    defaultModel: 'claude-3-5-sonnet-latest',
+    models: [
+      { value: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet' },
+      { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
+      { value: 'claude-3-opus-latest', label: 'Claude 3 Opus' }
+    ]
+  },
+  gemini: {
+    label: 'Gemini',
+    keyLabel: 'Gemini API key',
+    placeholder: 'AIza...',
+    defaultModel: 'gemini-2.0-flash',
+    models: [
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+      { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
+      { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' }
+    ]
+  }
+};
 
 document.addEventListener('DOMContentLoaded', function() {
   // Dark mode
@@ -99,9 +136,6 @@ function bindReportEvents() {
   var saveBtn = document.getElementById('btn-save-manual-template');
   if (saveBtn) saveBtn.addEventListener('click', handleSaveTemplate);
 
-  var newBtn = document.getElementById('btn-new-manual-template');
-  if (newBtn) newBtn.addEventListener('click', handleNewTemplate);
-
   var deleteBtn = document.getElementById('btn-delete-manual-template');
   if (deleteBtn) deleteBtn.addEventListener('click', handleDeleteTemplate);
 
@@ -117,14 +151,11 @@ function bindReportEvents() {
   var copyBtn = document.getElementById('btn-copy-report');
   if (copyBtn) copyBtn.addEventListener('click', handleCopyReportOutput);
 
-  var clearSavedKeyBtn = document.getElementById('btn-clear-openai-api-key');
+  var clearSavedKeyBtn = document.getElementById('btn-clear-ai-api-key');
   if (clearSavedKeyBtn) clearSavedKeyBtn.addEventListener('click', handleClearSavedOpenAiKey);
 
   var savePhraseBtn = document.getElementById('btn-save-phrase-handling');
   if (savePhraseBtn) savePhraseBtn.addEventListener('click', handleSavePhraseHandling);
-
-  var generatePhraseBtn = document.getElementById('btn-generate-phrase-handling');
-  if (generatePhraseBtn) generatePhraseBtn.addEventListener('click', handleGeneratePhraseHandling);
 
   var newPhraseBtn = document.getElementById('btn-new-phrase-handling');
   if (newPhraseBtn) newPhraseBtn.addEventListener('click', handleNewPhraseHandling);
@@ -147,34 +178,39 @@ function bindReportEvents() {
 }
 
 function initOpenAiKeyControls() {
-  var keyInput = document.getElementById('openai-api-key-input');
-  var rememberCheckbox = document.getElementById('remember-openai-api-key');
-  if (!keyInput || !rememberCheckbox) return;
+  var providerSelect = document.getElementById('ai-provider-select');
+  var keyInput = document.getElementById('ai-api-key-input');
+  var rememberCheckbox = document.getElementById('remember-ai-api-key');
+  var keyLabel = document.getElementById('ai-api-key-label');
+  var modelSelect = document.getElementById('ai-model-input');
+  if (!providerSelect || !keyInput || !rememberCheckbox || !keyLabel || !modelSelect) return;
 
-  var saved = '';
-  try {
-    saved = String(localStorage.getItem(OPENAI_KEY_STORAGE_KEY) || '').trim();
-  } catch (err) {
-    saved = '';
+  function refreshForProvider(provider) {
+    renderAiModelOptions(provider, modelSelect);
+    applyAiProviderUi(provider, keyInput, rememberCheckbox, keyLabel);
+    loadSavedAiKey(provider, keyInput, rememberCheckbox);
   }
 
-  if (saved) {
-    keyInput.value = saved;
-    rememberCheckbox.checked = true;
-  }
+  providerSelect.addEventListener('change', function() {
+    refreshForProvider(getSelectedAiProvider());
+  });
 
   keyInput.addEventListener('input', function() {
+    var provider = getSelectedAiProvider();
     if (!rememberCheckbox.checked) return;
-    persistOpenAiKey(String(keyInput.value || '').trim());
+    persistAiKey(provider, String(keyInput.value || '').trim());
   });
 
   rememberCheckbox.addEventListener('change', function() {
+    var provider = getSelectedAiProvider();
     if (rememberCheckbox.checked) {
-      persistOpenAiKey(String(keyInput.value || '').trim());
+      persistAiKey(provider, String(keyInput.value || '').trim());
       return;
     }
-    clearPersistedOpenAiKey();
+    clearPersistedAiKey(provider);
   });
+
+  refreshForProvider(getSelectedAiProvider());
 }
 
 function initAiSettingsToggle() {
@@ -190,34 +226,15 @@ function initAiSettingsToggle() {
   });
 }
 
-function persistOpenAiKey(value) {
-  var clean = String(value || '').trim();
-  try {
-    if (!clean) {
-      localStorage.removeItem(OPENAI_KEY_STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(OPENAI_KEY_STORAGE_KEY, clean);
-  } catch (err) {
-    // Ignore storage failures (private mode / quota).
-  }
-}
-
-function clearPersistedOpenAiKey() {
-  try {
-    localStorage.removeItem(OPENAI_KEY_STORAGE_KEY);
-  } catch (err) {
-    // Ignore storage failures (private mode / quota).
-  }
-}
-
 function handleClearSavedOpenAiKey() {
-  var keyInput = document.getElementById('openai-api-key-input');
-  var rememberCheckbox = document.getElementById('remember-openai-api-key');
+  var provider = getSelectedAiProvider();
+  var providerConfig = getAiProviderConfig(provider);
+  var keyInput = document.getElementById('ai-api-key-input');
+  var rememberCheckbox = document.getElementById('remember-ai-api-key');
   if (keyInput) keyInput.value = '';
   if (rememberCheckbox) rememberCheckbox.checked = false;
-  clearPersistedOpenAiKey();
-  setReportStatus('Saved OpenAI key cleared from this browser.', false);
+  clearPersistedAiKey(provider);
+  setReportStatus('Saved ' + providerConfig.label + ' key cleared from this browser.', false);
 }
 
 function teardownUserSubscriptions() {
@@ -399,14 +416,6 @@ function getTemplateEditorState() {
   };
 }
 
-function handleNewTemplate() {
-  var select = document.getElementById('report-template-select');
-  if (select) select.value = '';
-  _pendingTemplateSelection = '';
-  setDraftTemplatePhraseHandlingIds(getDefaultPhraseHandlingSelectionIds());
-  populateTemplateEditorFromSelection();
-}
-
 function handleAppendTemplateToBody() {
   var selected = getSelectedTemplate();
   if (!selected || !String(selected.body || '').trim()) {
@@ -534,7 +543,7 @@ function getReportLanguageMode() {
 function getReportOutputMode() {
   var select = document.getElementById('report-output-mode');
   var value = select ? String(select.value || '').trim() : '';
-  if (value === 'impression' || value === 'improve-finding') return value;
+  if (value === 'impression' || value === 'improve-finding' || value === 'chat') return value;
   return 'full';
 }
 
@@ -559,6 +568,7 @@ async function handleGenerateReport() {
   var findings = String(findingsEl.value || '').trim();
   var selectedTemplate = getSelectedTemplate();
   var templateState = getTemplateEditorState();
+  var templateText = templateState.body || (selectedTemplate ? selectedTemplate.body : '');
   var outputMode = getReportOutputMode();
   var studyType = getReportStudyType();
   var indication = getReportIndication();
@@ -571,7 +581,20 @@ async function handleGenerateReport() {
   setReportStatus('Generating report...', false);
 
   try {
-    var response = await generateWithBrowserOpenAi({
+    if (!String(templateText || '').trim() && (outputMode === 'full' || outputMode === 'chat')) {
+      setReportStatus('No template provided. Generating comprehensive template...', false);
+      templateText = await generateComprehensiveTemplateWithAi({
+        provider: getSelectedAiProvider(),
+        model: getSelectedAiModel(),
+        findings: findings,
+        studyType: studyType,
+        indication: indication,
+        phraseHandlingText: getActivePhraseHandlingText()
+      });
+      setReportStatus('Comprehensive template generated. Building report draft...', false);
+    }
+
+    var response = await generateWithBrowserAiProvider({
       provider: getSelectedAiProvider(),
       model: getSelectedAiModel(),
       outputMode: outputMode,
@@ -579,29 +602,40 @@ async function handleGenerateReport() {
       studyType: studyType,
       indication: indication,
       findingsLanguageMode: getReportLanguageMode(),
-      templateText: templateState.body || (selectedTemplate ? selectedTemplate.body : ''),
+      templateText: templateText,
       phraseHandlingText: getActivePhraseHandlingText()
     });
 
     var data = response && response.data ? response.data : {};
-    if (outputMode === 'impression') {
-      var impression = String(data.impression || '').trim();
-      if (!impression && data.sections && typeof data.sections === 'object') {
-        impression = String(data.sections.Impression || data.sections.impression || '').trim();
-      }
-      outputEl.value = impression || String(data.text || '').trim();
-    } else if (outputMode === 'improve-finding') {
-      var improved = String(data.improvedFinding || data.finding || '').trim();
-      outputEl.value = improved || String(data.text || '').trim();
-    } else {
-      var sections = data && data.sections && typeof data.sections === 'object' ? data.sections : {};
-      var ordered = Object.keys(sections || {});
-      if (!ordered.length) {
-        outputEl.value = String(data.text || '').trim();
-      } else {
-        outputEl.value = ordered.map(function(key) {
-          return String(key).toUpperCase() + ':\n' + String(sections[key] || '').trim();
-        }).join('\n\n');
+    outputEl.value = formatReportOutputFromData(data, outputMode);
+
+    if (outputMode === 'chat') {
+      var initialQuestions = normalizeFollowUpQuestions(data && data.followUpQuestions);
+      if (initialQuestions.length) {
+        setReportStatus('CHAT mode: asking follow-up questions...', false);
+        var answers = collectFollowUpAnswers(initialQuestions);
+        if (answers.length) {
+          setReportStatus('CHAT mode: refining report with your answers...', false);
+          var refinement = await generateWithBrowserAiProvider({
+            provider: getSelectedAiProvider(),
+            model: getSelectedAiModel(),
+            promptOverride: buildChatRefinementPrompt({
+              findings: findings,
+              studyType: studyType,
+              indication: indication,
+              findingsLanguageMode: getReportLanguageMode(),
+              templateText: templateText,
+              phraseHandlingText: getActivePhraseHandlingText(),
+              initialDraft: data,
+              followUpAnswers: answers
+            })
+          });
+          var refinementData = refinement && refinement.data ? refinement.data : {};
+          outputEl.value = formatReportOutputFromData(refinementData, 'full');
+          setReportStatus('CHAT mode: draft refined with follow-up answers.', false);
+          showToast('CHAT refinement complete.');
+          return;
+        }
       }
     }
 
@@ -643,16 +677,295 @@ function handleCopyReportOutput() {
   }
 }
 
-function getOpenAiApiKey() {
-  var keyInput = document.getElementById('openai-api-key-input');
-  var rememberCheckbox = document.getElementById('remember-openai-api-key');
+function dedupeSectionKeys(keys) {
+  var seen = {};
+  var result = [];
+
+  (keys || []).forEach(function(key) {
+    var raw = String(key || '').trim();
+    if (!raw) return;
+
+    var canonical = raw.toLowerCase();
+    if (seen[canonical]) return;
+    seen[canonical] = true;
+    result.push(raw);
+  });
+
+  return result;
+}
+
+function formatReportOutputFromData(data, outputMode) {
+  var mode = String(outputMode || 'full').trim();
+  var payload = data && typeof data === 'object' ? data : {};
+
+  if (mode === 'impression') {
+    var impression = String(payload.impression || '').trim();
+    if (!impression && payload.sections && typeof payload.sections === 'object') {
+      impression = String(payload.sections.Impression || payload.sections.impression || '').trim();
+    }
+    return impression || String(payload.text || '').trim();
+  }
+
+  if (mode === 'improve-finding') {
+    var improved = String(payload.improvedFinding || payload.finding || '').trim();
+    return improved || String(payload.text || '').trim();
+  }
+
+  var sections = payload && payload.sections && typeof payload.sections === 'object' ? payload.sections : {};
+  var ordered = dedupeSectionKeys(Object.keys(sections || {}));
+  if (!ordered.length) {
+    return String(payload.text || '').trim();
+  }
+
+  return ordered.map(function(key) {
+    return String(key).toUpperCase() + ':\n' + normalizeSectionNarrative(key, sections[key]);
+  }).join('\n\n');
+}
+
+function normalizeSectionNarrative(sectionName, sectionText) {
+  var clean = String(sectionText || '').trim();
+  var fallback = getSectionPertinentNegativeFallback(sectionName);
+
+  if (!clean) return fallback || '';
+  if (looksLikeMissingSectionPlaceholder(clean) && fallback) return fallback;
+  return clean;
+}
+
+function looksLikeMissingSectionPlaceholder(text) {
+  var clean = String(text || '').trim();
+  if (!clean) return true;
+
+  return /not specifically described|not described|not mentioned|not provided|not visualized|not evaluated|cannot be assessed|nondiagnostic|limited evaluation/i.test(clean);
+}
+
+function getSectionPertinentNegativeFallback(sectionName) {
+  var name = String(sectionName || '').toLowerCase();
+  if (!name) return '';
+
+  if (/kidney|renal|ureter/.test(name)) return 'No hydronephrosis or hydroureter.';
+  if (/liver|hepatic/.test(name)) return 'No focal hepatic lesion.';
+  if (/gallbladder|biliary|bile duct/.test(name)) return 'No gallbladder distention or biliary ductal dilatation.';
+  if (/pancrea/.test(name)) return 'No peripancreatic inflammatory change or ductal dilatation.';
+  if (/spleen|splenic/.test(name)) return 'No splenomegaly or focal splenic lesion.';
+  if (/adrenal/.test(name)) return 'No adrenal nodule.';
+  if (/bowel|intestin|colon|small bowel|large bowel/.test(name)) return 'No bowel obstruction or focal bowel wall thickening.';
+  if (/appendix|appendiceal/.test(name)) return 'No periappendiceal inflammatory change.';
+  if (/bladder|urinary bladder/.test(name)) return 'No focal urinary bladder wall thickening.';
+  if (/reproductive|uterus|ovar|adnexa|prostate|seminal/.test(name)) return 'No acute abnormality identified.';
+  if (/peritone|mesenter|retroperitone/.test(name)) return 'No ascites or free intraperitoneal air.';
+  if (/vascul|aorta|arter/.test(name)) return 'No abdominal aortic aneurysm.';
+  if (/lymph|node|adenopathy/.test(name)) return 'No pathologically enlarged lymph nodes.';
+  if (/lung|pleura|lower chest|thorax/.test(name)) return 'No pleural effusion or focal basilar airspace opacity.';
+  if (/bones|osseous|skeleton|spine/.test(name)) return 'No acute osseous abnormality.';
+  return '';
+}
+
+function normalizeFollowUpQuestions(questions) {
+  if (!Array.isArray(questions)) return [];
+
+  var result = [];
+  var seen = {};
+  questions.forEach(function(item) {
+    var question = '';
+    if (typeof item === 'string') {
+      question = String(item || '').trim();
+    } else if (item && typeof item === 'object') {
+      question = String(item.question || item.prompt || '').trim();
+    }
+
+    if (!question) return;
+    var key = question.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+
+    result.push({
+      question: question,
+      rationale: item && typeof item === 'object' ? String(item.rationale || '').trim() : ''
+    });
+  });
+
+  return result.slice(0, 4);
+}
+
+function collectFollowUpAnswers(questions) {
+  var responses = [];
+  (questions || []).forEach(function(item, idx) {
+    var promptText = 'AI follow-up question ' + (idx + 1) + ':\n' + item.question + '\n\n';
+    if (item.rationale) {
+      promptText += 'Why this matters: ' + item.rationale + '\n\n';
+    }
+    promptText += 'Optional: enter an answer, or leave blank/cancel to skip.';
+
+    var answer = window.prompt(promptText, '');
+    if (answer === null) return;
+    var trimmed = String(answer || '').trim();
+    if (!trimmed) return;
+
+    responses.push({
+      question: item.question,
+      answer: trimmed
+    });
+  });
+  return responses;
+}
+
+function buildChatRefinementPrompt(payload) {
+  var findingsModeMap = {
+    exact: 'When inserting findings into a report field, keep wording as close as possible to the source findings text.',
+    improve: 'Improve grammar and readability while preserving exact clinical meaning.'
+  };
+
+  var system = [
+    'You are a subspecialty-experienced radiologist refining a report draft using user-provided clarifications.',
+    'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
+    'Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.',
+    'Do not invent findings that are not in the original input or follow-up answers.',
+    'Never use placeholders like "Not specifically described" or "Not evaluated" for unremarkable sections.',
+    'When no positive finding is present in a section, use concise anatomy-appropriate pertinent negatives.',
+    'Apply phraseHandlingRules exactly when they are provided.'
+  ].join('\n');
+
+  var user = {
+    findingsLanguageRule: findingsModeMap[payload.findingsLanguageMode] || findingsModeMap.improve,
+    studyType: payload.studyType || '',
+    indication: payload.indication || '',
+    findingsInput: payload.findings || '',
+    templateText: payload.templateText || '',
+    templateFields: extractTemplateFieldNames(payload.templateText || ''),
+    templateSectionDefaults: extractTemplateSectionDefaults(payload.templateText || ''),
+    phraseHandlingRules: payload.phraseHandlingText || '',
+    initialDraft: payload.initialDraft || {},
+    followUpClarifications: payload.followUpAnswers || []
+  };
+
+  return {
+    system: system,
+    user: JSON.stringify(user)
+  };
+}
+
+function buildComprehensiveTemplatePrompt(payload) {
+  var system = [
+    'You are a subspecialty-experienced radiologist creating a structured report template.',
+    'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
+    'Output shape must be exactly: {"templateText":"..."}.',
+    'Generate a comprehensive template with all anatomically associated section headers relevant to the study context.',
+    'Each section should include concise default pertinent negative language where appropriate.',
+    'Do not use placeholders such as "Not specifically described" or "Not evaluated" in template defaults.',
+    'Include an Impression section at the end.',
+    'Format templateText as plain report template text with section labels ending in a colon.'
+  ].join('\n');
+
+  var user = {
+    studyType: payload.studyType || '',
+    indication: payload.indication || '',
+    findingsInput: payload.findings || '',
+    phraseHandlingRules: payload.phraseHandlingText || ''
+  };
+
+  return {
+    system: system,
+    user: JSON.stringify(user)
+  };
+}
+
+async function generateComprehensiveTemplateWithAi(payload) {
+  var response = await generateWithBrowserAiProvider({
+    provider: payload.provider,
+    model: payload.model,
+    promptOverride: buildComprehensiveTemplatePrompt(payload)
+  });
+
+  var data = response && response.data ? response.data : {};
+  var templateText = String(data.templateText || data.text || '').trim();
+  if (!templateText) {
+    throw new Error('AI could not generate a comprehensive template. Please try again.');
+  }
+
+  return templateText;
+}
+
+function getAiProviderConfig(provider) {
+  return AI_PROVIDER_CONFIG[String(provider || '').trim()] || AI_PROVIDER_CONFIG.openai;
+}
+
+function getAiApiStorageKey(provider) {
+  return 'reportGenerator.aiApiKey.' + String(provider || 'openai').trim();
+}
+
+function loadSavedAiKey(provider, keyInput, rememberCheckbox) {
+  var saved = '';
+  try {
+    saved = String(localStorage.getItem(getAiApiStorageKey(provider)) || '').trim();
+  } catch (err) {
+    saved = '';
+  }
+
+  if (keyInput) keyInput.value = saved;
+  if (rememberCheckbox) rememberCheckbox.checked = !!saved;
+}
+
+function applyAiProviderUi(provider, keyInput, rememberCheckbox, keyLabel) {
+  var providerConfig = getAiProviderConfig(provider);
+  if (keyInput) keyInput.placeholder = providerConfig.placeholder || '';
+  if (keyLabel) keyLabel.textContent = providerConfig.keyLabel || 'AI API key';
+  if (rememberCheckbox) rememberCheckbox.setAttribute('aria-label', 'Remember ' + providerConfig.label + ' key on this device');
+}
+
+function renderAiModelOptions(provider, modelSelect) {
+  if (!modelSelect) return;
+
+  var providerConfig = getAiProviderConfig(provider);
+  var current = String(modelSelect.value || '').trim();
+  var html = '';
+
+  providerConfig.models.forEach(function(option) {
+    html += '<option value="' + escapeHtmlAttr(option.value) + '">' + escapeHtmlText(option.label) + '</option>';
+  });
+
+  modelSelect.innerHTML = html;
+
+  var available = providerConfig.models.some(function(option) {
+    return option.value === current;
+  });
+  modelSelect.value = available ? current : providerConfig.defaultModel;
+}
+
+function persistAiKey(provider, value) {
+  var clean = String(value || '').trim();
+  try {
+    if (!clean) {
+      localStorage.removeItem(getAiApiStorageKey(provider));
+      return;
+    }
+    localStorage.setItem(getAiApiStorageKey(provider), clean);
+  } catch (err) {
+    // Ignore storage failures (private mode / quota).
+  }
+}
+
+function clearPersistedAiKey(provider) {
+  try {
+    localStorage.removeItem(getAiApiStorageKey(provider));
+  } catch (err) {
+    // Ignore storage failures (private mode / quota).
+  }
+}
+
+function getAiApiKey(provider) {
+  var keyInput = document.getElementById('ai-api-key-input');
+  var rememberCheckbox = document.getElementById('remember-ai-api-key');
   var key = keyInput ? String(keyInput.value || '').trim() : '';
 
   if (rememberCheckbox && rememberCheckbox.checked) {
-    persistOpenAiKey(key);
+    persistAiKey(String(provider || 'openai').trim(), key);
   }
 
   return key;
+}
+
+function getOpenAiApiKey() {
+  return getAiApiKey('openai');
 }
 
 // ── Phrase Handling ──────────────────────────────────────────────────────────
@@ -790,40 +1103,9 @@ function getPhraseHandlingEditorState() {
 
 function handleNewPhraseHandling() {
   var select = document.getElementById('phrase-handling-select');
-  var generatorEl = document.getElementById('phrase-handling-generator-input');
   if (select) select.value = '';
-  if (generatorEl) generatorEl.value = '';
   _pendingPhraseHandlingSelection = '';
   populatePhraseHandlingEditorFromSelection();
-}
-
-async function handleGeneratePhraseHandling() {
-  var inputEl = document.getElementById('phrase-handling-generator-input');
-  var exampleText = inputEl ? String(inputEl.value || '').trim() : '';
-  if (!exampleText) {
-    setReportStatus('Enter an example phrase or rule to generate a phrase handling draft.', true);
-    return;
-  }
-
-  setReportStatus('Generating phrase handling draft...', false);
-
-  try {
-    var response = await generatePhraseHandlingDraftWithBrowserOpenAi({
-      provider: getSelectedAiProvider(),
-      model: getSelectedAiModel(),
-      exampleText: exampleText
-    });
-
-    var nameEl = document.getElementById('phrase-handling-name');
-    var textEl = document.getElementById('phrase-handling-text');
-    if (nameEl) nameEl.value = String(response.name || '').trim();
-    if (textEl) textEl.value = String(response.text || '').trim();
-
-    setReportStatus('Phrase handling draft generated. Review and save it.', false);
-    showToast('Phrase handling draft generated.');
-  } catch (err) {
-    setReportStatus((err && err.message) || 'Failed to generate phrase handling draft.', true);
-  }
 }
 
 async function handleSavePhraseHandling() {
@@ -937,26 +1219,13 @@ function inferStudyTypeFromTemplate(template) {
   return '';
 }
 
-function inferIndicationFromTemplate(template) {
-  if (!template) return '';
-  var body = String(template.body || '');
-  var match = body.match(/(?:^|\n)\s*INDICATION\s*:\s*([^\n]+)/i);
-  return match && match[1] ? String(match[1]).trim() : '';
-}
-
 function applyTemplateContextToGenerationFields(template) {
   var studyTypeInput = document.getElementById('report-study-type-input');
-  var indicationInput = document.getElementById('report-indication-input');
-  if (!studyTypeInput && !indicationInput) return;
+  if (!studyTypeInput) return;
 
   var nextStudyType = inferStudyTypeFromTemplate(template);
   if (studyTypeInput && nextStudyType) {
     studyTypeInput.value = nextStudyType;
-  }
-
-  var nextIndication = inferIndicationFromTemplate(template);
-  if (indicationInput && nextIndication) {
-    indicationInput.value = nextIndication;
   }
 }
 
@@ -985,12 +1254,19 @@ function buildReportPrompt(payload) {
   } else if (outputMode === 'improve-finding') {
     instructions.push('Output shape must be exactly: {"improvedFinding":"..."}.');
     instructions.push('Rewrite the finding text for clarity and professionalism without changing meaning.');
+  } else if (outputMode === 'chat') {
+    instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."},"followUpQuestions":[{"question":"...","rationale":"..."}]}.');
+    instructions.push('Generate a full report draft first, then include 0-4 concise follow-up questions that would materially improve report quality if answered.');
+    instructions.push('Ask only clinically meaningful missing details. Example: if aortic dissection is described without flap location, ask for flap location.');
+    instructions.push('If no high-value clarifications are needed, return an empty followUpQuestions array.');
   } else if (hasTemplate) {
     instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.');
     instructions.push('Use the template field labels (lines ending in a colon) as section keys and preserve their order.');
     instructions.push('Sort each finding into the best matching template field.');
     instructions.push('Findings that do not match any template field must go into an Other section.');
     instructions.push('If no input findings apply to a template field, keep that field text exactly the same as templateSectionDefaults for that field.');
+    instructions.push('Never replace a section with placeholder text like "Not specifically described", "Not evaluated", or "Not mentioned".');
+    instructions.push('If a section has no positive finding, preserve or provide concise anatomy-appropriate pertinent negatives instead.');
     instructions.push('If the template does not contain Impression, include an Impression section at the end.');
   } else {
     instructions.push('Output shape must be exactly: {"sections":{"Findings":"...","Impression":"..."}}.');
@@ -1066,20 +1342,6 @@ function extractTemplateSectionDefaults(templateText) {
   return sections;
 }
 
-function buildPhraseHandlingDraftPrompt(exampleText) {
-  return {
-    system: [
-      'You generate phrase-handling rules for a radiology report drafting assistant.',
-      'Return valid JSON only with this shape:',
-      '{"name":"...","text":"..."}',
-      'The name should be short and descriptive.',
-      'The text should be actionable instructions that tell the AI how to handle the phrase or concept.',
-      'Do not include markdown fences.'
-    ].join('\n'),
-    user: JSON.stringify({ exampleText: String(exampleText || '') })
-  };
-}
-
 function extractJsonObject(text) {
   var raw = String(text || '').trim();
   if (!raw) return null;
@@ -1102,41 +1364,94 @@ function extractJsonObject(text) {
   }
 }
 
-async function generateWithBrowserOpenAi(payload) {
-  if (String(payload.provider || '').trim() !== 'openai') {
-    throw new Error('Only OpenAI provider is supported in browser-key mode.');
-  }
-
-  var apiKey = getOpenAiApiKey();
+async function generateWithBrowserAiProvider(payload) {
+  var provider = String(payload.provider || 'openai').trim() || 'openai';
+  var providerConfig = getAiProviderConfig(provider);
+  var apiKey = getAiApiKey(provider);
   if (!apiKey) {
-    throw new Error('Enter an OpenAI API key to generate a report.');
+    throw new Error('Enter a ' + providerConfig.label + ' API key to generate a report.');
   }
 
-  var prompt = buildReportPrompt(payload || {});
-  var response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + apiKey
-    },
-    body: JSON.stringify({
-      model: String(payload.model || 'gpt-4o-mini').trim(),
-      messages: [
-        { role: 'system', content: prompt.system },
-        { role: 'user', content: prompt.user }
-      ]
-    })
-  });
+  var prompt = payload && payload.promptOverride ? payload.promptOverride : buildReportPrompt(payload || {});
+  var model = String(payload.model || providerConfig.defaultModel || '').trim();
+  var response;
+
+  if (provider === 'anthropic') {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: model,
+        max_tokens: 2048,
+        system: prompt.system,
+        messages: [
+          { role: 'user', content: prompt.user }
+        ]
+      })
+    });
+  } else if (provider === 'gemini') {
+    response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: prompt.system }]
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt.user }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2048
+        }
+      })
+    });
+  } else {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + apiKey
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user }
+        ]
+      })
+    });
+  }
 
   var data = await response.json().catch(function() { return {}; });
   if (!response.ok) {
-    var msg = (data && data.error && data.error.message) || ('OpenAI request failed (' + response.status + ').');
+    var msg = (data && data.error && data.error.message) || (providerConfig.label + ' request failed (' + response.status + ').');
     throw new Error(msg);
   }
 
-  var content = data && data.choices && data.choices[0] && data.choices[0].message
-    ? String(data.choices[0].message.content || '')
-    : '';
+  var content = '';
+  if (provider === 'anthropic') {
+    content = Array.isArray(data && data.content)
+      ? data.content.map(function(part) { return String(part && part.text || ''); }).join('')
+      : '';
+  } else if (provider === 'gemini') {
+    content = data && data.candidates && data.candidates[0] && data.candidates[0].content && Array.isArray(data.candidates[0].content.parts)
+      ? data.candidates[0].content.parts.map(function(part) { return String(part && part.text || ''); }).join('')
+      : '';
+  } else {
+    content = data && data.choices && data.choices[0] && data.choices[0].message
+      ? String(data.choices[0].message.content || '')
+      : '';
+  }
 
   var parsed = extractJsonObject(content);
   if (parsed && typeof parsed === 'object') {
@@ -1146,59 +1461,6 @@ async function generateWithBrowserOpenAi(payload) {
   return { data: { text: content } };
 }
 
-async function generatePhraseHandlingDraftWithBrowserOpenAi(payload) {
-  if (String(payload.provider || '').trim() !== 'openai') {
-    throw new Error('Only OpenAI provider is supported in browser-key mode.');
-  }
-
-  var apiKey = getOpenAiApiKey();
-  if (!apiKey) {
-    throw new Error('Enter an OpenAI API key to generate a phrase handling draft.');
-  }
-
-  var prompt = buildPhraseHandlingDraftPrompt(payload.exampleText || '');
-  var response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + apiKey
-    },
-    body: JSON.stringify({
-      model: String(payload.model || 'gpt-4o-mini').trim(),
-      messages: [
-        { role: 'system', content: prompt.system },
-        { role: 'user', content: prompt.user }
-      ]
-    })
-  });
-
-  var data = await response.json().catch(function() { return {}; });
-  if (!response.ok) {
-    var msg = (data && data.error && data.error.message) || ('OpenAI request failed (' + response.status + ').');
-    throw new Error(msg);
-  }
-
-  var content = data && data.choices && data.choices[0] && data.choices[0].message
-    ? String(data.choices[0].message.content || '')
-    : '';
-
-  var parsed = extractJsonObject(content);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Phrase handling draft response was not valid JSON.');
-  }
-
-  var name = String(parsed.name || '').trim();
-  var text = String(parsed.text || '').trim();
-  if (!text) {
-    throw new Error('Phrase handling draft response did not include instructions.');
-  }
-
-  return {
-    name: name || 'Generated phrase handling',
-    text: text
-  };
-}
-
 function getSelectedAiProvider() {
   var select = document.getElementById('ai-provider-select');
   return select ? String(select.value || 'openai').trim() : 'openai';
@@ -1206,7 +1468,10 @@ function getSelectedAiProvider() {
 
 function getSelectedAiModel() {
   var select = document.getElementById('ai-model-input');
-  return select ? String(select.value || '').trim() : '';
+  if (!select) {
+    return getAiProviderConfig(getSelectedAiProvider()).defaultModel;
+  }
+  return String(select.value || '').trim() || getAiProviderConfig(getSelectedAiProvider()).defaultModel;
 }
 
 function setReportStatus(message, isError) {

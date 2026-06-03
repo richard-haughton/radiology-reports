@@ -7,7 +7,7 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
 - Standalone login flow (Google sign-in via Firebase Auth)
 - Report template CRUD (users/{uid}/reportTemplates)
 - Phrase handling CRUD (users/{uid}/phraseHandlings)
-- AI report generation with user-provided OpenAI API key (browser mode)
+- AI report generation with user-provided OpenAI, Claude, or Gemini API keys (browser mode)
 - Mobile-friendly two-column layout that collapses to one column
 - Firebase config files for standalone project setup (`firebase.json`, `.firebaserc`)
 - Firestore rules file included at `firestore.rules`
@@ -19,7 +19,7 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
    - Authentication enabled for Google
    - Firestore enabled
 3. Add your GitHub Pages domain to Firebase authorized domains.
-4. Use your own OpenAI API key in the app's Generation section.
+4. Use your own API key for the selected AI provider in the app's Generation section.
 
 ## Firestore rules expectation
 
@@ -89,8 +89,8 @@ jobs:
 
 ## Notes
 
-- OpenAI keys entered in the app are used directly from the browser.
-- If "Remember on this device" is enabled, the key is saved in browser localStorage.
+- API keys entered in the app are used directly from the browser.
+- If "Remember on this device" is enabled, the selected provider's key is saved in browser localStorage.
 - Templates can store their active phrase handling selection through `selectedPhraseHandlingIds` so each template can remember which phrase rules should be applied during generation.
 - Phrase handling drafts can be generated from an example phrase or rule and then saved for reuse.
 - Update model options or provider list in `js/app.js` as needed.
