@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reports</title>
   <meta name="description" content="Standalone report generator for radiology draft creation." />
-  <link rel="stylesheet" href="css/app.css?v=20260602a" />
+  <link rel="stylesheet" href="css/app.css?v=20260602b" />
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <script src="js/firebase-config.js?v=20260602a"></script>
-  <script src="js/app.js?v=20260602a"></script>
+  <script src="js/firebase-config.js?v=20260602b"></script>
+  <script src="js/app.js?v=20260602b"></script>
 </head>
 <body>
   <div id="hipaa-warning" style="background:#b91c1c;color:#fff;font-weight:bold;text-align:center;padding:12px 16px;font-size:1.05rem;letter-spacing:0.01em;">
@@ -98,53 +98,68 @@
       </aside>
 
       <section class="report-main">
+        <section class="report-card ai-settings-card">
+          <button id="btn-toggle-ai-settings" class="section-toggle" type="button" aria-expanded="false" aria-controls="ai-settings-body">
+            <span>AI Settings</span>
+            <span id="ai-settings-chevron" class="section-toggle-chevron">▾</span>
+          </button>
+
+          <div id="ai-settings-body" class="section-toggle-body" style="display:none">
+            <label class="form-label" for="ai-provider-select">Provider</label>
+            <select id="ai-provider-select" class="form-input">
+              <option value="openai">OpenAI</option>
+            </select>
+
+            <label class="form-label" for="ai-model-input">Model</label>
+            <select id="ai-model-input" class="form-input">
+              <option value="gpt-5.5">ChatGPT 5.5 (default)</option>
+              <option value="gpt-5">ChatGPT 5</option>
+              <option value="gpt-5-mini">ChatGPT 5 mini</option>
+              <option value="gpt-4.5">GPT-4.5</option>
+              <option value="gpt-4o">GPT-4o</option>
+              <option value="gpt-4o-mini">GPT-4o mini</option>
+            </select>
+
+            <label class="form-label" for="openai-api-key-input">OpenAI API key</label>
+            <input id="openai-api-key-input" class="form-input" type="password" autocomplete="off" placeholder="sk-..." />
+            <div class="row-actions">
+              <label class="form-label" for="remember-openai-api-key" style="margin:0">
+                <input id="remember-openai-api-key" type="checkbox" /> Remember on this device
+              </label>
+              <button id="btn-clear-openai-api-key" class="btn btn-ghost btn-sm" type="button">Clear Saved Key</button>
+            </div>
+          </div>
+        </section>
+
         <section class="report-card">
           <h2>Generation</h2>
 
-          <label class="form-label" for="ai-provider-select">Provider</label>
-          <select id="ai-provider-select" class="form-input">
-            <option value="openai">OpenAI</option>
+          <label class="form-label" for="report-output-mode">Generation mode</label>
+          <select id="report-output-mode" class="form-input">
+            <option value="full" selected>Entire report generation</option>
+            <option value="impression">Impression only</option>
+            <option value="improve-finding">Improve language of finding</option>
           </select>
 
-          <label class="form-label" for="ai-model-input">Model</label>
-          <select id="ai-model-input" class="form-input">
-            <option value="gpt-5.5">ChatGPT 5.5 (default)</option>
-            <option value="gpt-5">ChatGPT 5</option>
-            <option value="gpt-5-mini">ChatGPT 5 mini</option>
-            <option value="gpt-4.5">GPT-4.5</option>
-            <option value="gpt-4o">GPT-4o</option>
-            <option value="gpt-4o-mini">GPT-4o mini</option>
-          </select>
-
-          <label class="form-label" for="openai-api-key-input">OpenAI API key</label>
-          <input id="openai-api-key-input" class="form-input" type="password" autocomplete="off" placeholder="sk-..." />
-          <div class="row-actions">
-            <label class="form-label" for="remember-openai-api-key" style="margin:0">
-              <input id="remember-openai-api-key" type="checkbox" /> Remember on this device
+          <div class="row-2">
+            <label class="form-label" for="report-study-type-input">Study type
+              <input id="report-study-type-input" class="form-input" type="text" placeholder="Example: CT Abdomen/Pelvis with contrast" />
             </label>
-            <button id="btn-clear-openai-api-key" class="btn btn-ghost btn-sm" type="button">Clear Saved Key</button>
+
+            <label class="form-label" for="report-indication-input">Indication
+              <input id="report-indication-input" class="form-input" type="text" placeholder="Example: Abdominal pain" />
+            </label>
           </div>
 
           <label class="form-label" for="report-findings-input">Findings input</label>
           <textarea id="report-findings-input" class="form-input" rows="8" placeholder="Enter findings here..."></textarea>
 
-          <div class="row-2">
-            <label class="form-label" for="report-findings-language-mode">Findings handling
-              <select id="report-findings-language-mode" class="form-input">
-                <option value="keep">Keep exactly the same language</option>
-                <option value="improve" selected>Improve language</option>
-                <option value="omit">Do not include</option>
-              </select>
-            </label>
-
-            <label class="form-label" for="report-impression-mode">Impression handling
-              <select id="report-impression-mode" class="form-input">
-                <option value="concise" selected>Concise</option>
-                <option value="expound">Expound</option>
-                <option value="omit">Do not include</option>
-              </select>
-            </label>
-          </div>
+          <label class="form-label" for="report-findings-language-mode">Findings language style
+            <select id="report-findings-language-mode" class="form-input">
+              <option value="exact">Keep exact language</option>
+              <option value="improve" selected>Improve language</option>
+            </select>
+          </label>
 
           <div class="row-actions">
             <button id="btn-generate-report" class="btn btn-accent" type="button">Generate Report</button>

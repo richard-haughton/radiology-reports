@@ -119,6 +119,44 @@ body {
   font-size: 1.1rem;
 }
 
+.ai-settings-card {
+  padding: 0;
+}
+
+.section-toggle {
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  padding: 14px 16px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.section-toggle:hover {
+  background: rgba(31, 107, 70, 0.06);
+}
+
+.section-toggle-chevron {
+  color: var(--ink-muted);
+  transition: transform 0.18s ease;
+}
+
+.section-toggle[aria-expanded="true"] .section-toggle-chevron {
+  transform: rotate(180deg);
+}
+
+.section-toggle-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
 .form-label {
   display: block;
   font-size: 0.88rem;

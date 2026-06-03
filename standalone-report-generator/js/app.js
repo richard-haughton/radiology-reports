@@ -56,6 +56,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   bindReportEvents();
   initOpenAiKeyControls();
+  initAiSettingsToggle();
 
   appAuth.onAuthStateChanged(function(user) {
     if (!user) {
@@ -173,6 +174,19 @@ function initOpenAiKeyControls() {
       return;
     }
     clearPersistedOpenAiKey();
+  });
+}
+
+function initAiSettingsToggle() {
+  var toggleBtn = document.getElementById('btn-toggle-ai-settings');
+  var bodyEl = document.getElementById('ai-settings-body');
+  if (!toggleBtn || !bodyEl) return;
+
+  toggleBtn.addEventListener('click', function() {
+    var expanded = String(toggleBtn.getAttribute('aria-expanded') || 'false') === 'true';
+    var next = !expanded;
+    toggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+    bodyEl.style.display = next ? 'block' : 'none';
   });
 }
 
@@ -306,6 +320,7 @@ function subscribeTemplates() {
       data.id = doc.id;
       data.name = String(data.name || '').trim() || 'Untitled Template';
       data.body = String(data.body || '');
+      data.studyType = String(data.studyType || '').trim();
       data.rulesText = String(data.rulesText || '');
       data.hasSelectedPhraseHandlingIds = Array.isArray(data.selectedPhraseHandlingIds);
       data.selectedPhraseHandlingIds = normalizePhraseHandlingIds(data.selectedPhraseHandlingIds);
@@ -364,6 +379,7 @@ function populateTemplateEditorFromSelection() {
     bodyEl.value = '';
     setDraftTemplatePhraseHandlingIds(getDefaultPhraseHandlingSelectionIds());
     renderPhraseHandlingChecklist();
+    applyTemplateContextToGenerationFields(null);
     return;
   }
 
@@ -371,6 +387,7 @@ function populateTemplateEditorFromSelection() {
   bodyEl.value = String(selected.body || '');
   setDraftTemplatePhraseHandlingIds(getTemplatePhraseHandlingIds(selected));
   renderPhraseHandlingChecklist();
+  applyTemplateContextToGenerationFields(selected);
 }
 
 function getTemplateEditorState() {
@@ -420,6 +437,7 @@ async function handleSaveTemplate() {
   var payload = {
     name: name,
     body: state.body,
+    studyType: getReportStudyType(),
     selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     createdAt: selected && selected.createdAt ? selected.createdAt : firebase.firestore.FieldValue.serverTimestamp()
@@ -489,6 +507,7 @@ async function handleImportTemplateFile(event) {
     var ref = await reportTemplatesRef(_uid).add({
       name: name,
       body: body,
+      studyType: inferStudyTypeFromTemplate({ name: name, body: body }),
       rulesText: '',
       selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -508,22 +527,25 @@ async function handleImportTemplateFile(event) {
 function getReportLanguageMode() {
   var select = document.getElementById('report-findings-language-mode');
   var value = select ? String(select.value || '').trim() : '';
-  if (value === 'keep' || value === 'omit') return value;
+  if (value === 'exact') return 'exact';
   return 'improve';
 }
 
-function getReportImpressionMode() {
-  var select = document.getElementById('report-impression-mode');
+function getReportOutputMode() {
+  var select = document.getElementById('report-output-mode');
   var value = select ? String(select.value || '').trim() : '';
-  if (value === 'expound' || value === 'omit') return value;
-  return 'concise';
+  if (value === 'impression' || value === 'improve-finding') return value;
+  return 'full';
 }
 
-function getRequestedSections() {
-  var sections = [];
-  if (getReportLanguageMode() !== 'omit') sections.push('Findings');
-  if (getReportImpressionMode() !== 'omit') sections.push('Impression');
-  return sections;
+function getReportStudyType() {
+  var input = document.getElementById('report-study-type-input');
+  return input ? String(input.value || '').trim() : '';
+}
+
+function getReportIndication() {
+  var input = document.getElementById('report-indication-input');
+  return input ? String(input.value || '').trim() : '';
 }
 
 async function handleGenerateReport() {
@@ -537,10 +559,12 @@ async function handleGenerateReport() {
   var findings = String(findingsEl.value || '').trim();
   var selectedTemplate = getSelectedTemplate();
   var templateState = getTemplateEditorState();
-  var requestedSections = getRequestedSections();
+  var outputMode = getReportOutputMode();
+  var studyType = getReportStudyType();
+  var indication = getReportIndication();
 
-  if (!requestedSections.length) {
-    setReportStatus('Enable at least one output section before generating.', true);
+  if (!findings && outputMode !== 'full') {
+    setReportStatus('Enter findings input for this generation mode.', true);
     return;
   }
 
@@ -550,24 +574,35 @@ async function handleGenerateReport() {
     var response = await generateWithBrowserOpenAi({
       provider: getSelectedAiProvider(),
       model: getSelectedAiModel(),
+      outputMode: outputMode,
       findings: findings,
-      sectionOrder: requestedSections,
+      studyType: studyType,
+      indication: indication,
       findingsLanguageMode: getReportLanguageMode(),
-      impressionMode: getReportImpressionMode(),
       templateText: templateState.body || (selectedTemplate ? selectedTemplate.body : ''),
       phraseHandlingText: getActivePhraseHandlingText()
     });
 
-    var sections = response && response.data && response.data.sections ? response.data.sections : (response && response.sections ? response.sections : {});
-    var ordered = Object.keys(sections || {});
-
-    if (!ordered.length) {
-      var message = response && response.data && response.data.text ? String(response.data.text) : '';
-      outputEl.value = message;
+    var data = response && response.data ? response.data : {};
+    if (outputMode === 'impression') {
+      var impression = String(data.impression || '').trim();
+      if (!impression && data.sections && typeof data.sections === 'object') {
+        impression = String(data.sections.Impression || data.sections.impression || '').trim();
+      }
+      outputEl.value = impression || String(data.text || '').trim();
+    } else if (outputMode === 'improve-finding') {
+      var improved = String(data.improvedFinding || data.finding || '').trim();
+      outputEl.value = improved || String(data.text || '').trim();
     } else {
-      outputEl.value = ordered.map(function(key) {
-        return String(key).toUpperCase() + ':\n' + String(sections[key] || '').trim();
-      }).join('\n\n');
+      var sections = data && data.sections && typeof data.sections === 'object' ? data.sections : {};
+      var ordered = Object.keys(sections || {});
+      if (!ordered.length) {
+        outputEl.value = String(data.text || '').trim();
+      } else {
+        outputEl.value = ordered.map(function(key) {
+          return String(key).toUpperCase() + ':\n' + String(sections[key] || '').trim();
+        }).join('\n\n');
+      }
     }
 
     setReportStatus('Draft generated.', false);
@@ -885,35 +920,93 @@ function handleUseTemplateDirect() {
   showToast('Template applied directly.');
 }
 
+function inferStudyTypeFromTemplate(template) {
+  if (!template) return '';
+
+  var explicit = String(template.studyType || '').trim();
+  if (explicit) return explicit;
+
+  var body = String(template.body || '');
+  var examMatch = body.match(/(?:^|\n)\s*(?:EXAM|STUDY|PROCEDURE)\s*:\s*([^\n]+)/i);
+  if (examMatch && examMatch[1]) {
+    return String(examMatch[1]).trim();
+  }
+
+  var name = String(template.name || '').trim();
+  if (name) return name;
+  return '';
+}
+
+function inferIndicationFromTemplate(template) {
+  if (!template) return '';
+  var body = String(template.body || '');
+  var match = body.match(/(?:^|\n)\s*INDICATION\s*:\s*([^\n]+)/i);
+  return match && match[1] ? String(match[1]).trim() : '';
+}
+
+function applyTemplateContextToGenerationFields(template) {
+  var studyTypeInput = document.getElementById('report-study-type-input');
+  var indicationInput = document.getElementById('report-indication-input');
+  if (!studyTypeInput && !indicationInput) return;
+
+  var nextStudyType = inferStudyTypeFromTemplate(template);
+  if (studyTypeInput && nextStudyType) {
+    studyTypeInput.value = nextStudyType;
+  }
+
+  var nextIndication = inferIndicationFromTemplate(template);
+  if (indicationInput && nextIndication) {
+    indicationInput.value = nextIndication;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildReportPrompt(payload) {
   var findingsModeMap = {
-    keep: 'Keep findings wording exactly the same when possible.',
-    improve: 'Improve grammar and readability while preserving clinical meaning.',
-    omit: 'Do not include a Findings section.'
+    exact: 'When inserting findings into a report field, keep wording as close as possible to the source findings text.',
+    improve: 'Improve grammar and readability while preserving exact clinical meaning.'
   };
-  var impressionModeMap = {
-    concise: 'Write a concise Impression.',
-    expound: 'Write an expanded Impression with clear prioritization.',
-    omit: 'Do not include an Impression section.'
-  };
+
+  var outputMode = String(payload.outputMode || 'full').trim();
+  var templateText = String(payload.templateText || '').trim();
+  var hasTemplate = !!templateText;
 
   var instructions = [
-    'You are generating a radiology report draft.',
-    'Return valid JSON only with this shape:',
-    '{"sections":{"Findings":"...","Impression":"..."}}',
-    'Only include requested sections.',
-    'Do not add markdown fences.',
-    'If phraseHandlingRules are provided, follow them exactly when choosing wording.'
+    'You are a subspecialty-experienced radiologist generating a high-quality diagnostic report draft.',
+    'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
+    'Do not invent findings that are not in the input. Use medically appropriate uncertainty language when needed.',
+    'Apply phraseHandlingRules exactly when they are provided.'
   ];
 
+  if (outputMode === 'impression') {
+    instructions.push('Output shape must be exactly: {"impression":"..."}.');
+    instructions.push('Generate only the Impression text and prioritize clinically important conclusions.');
+  } else if (outputMode === 'improve-finding') {
+    instructions.push('Output shape must be exactly: {"improvedFinding":"..."}.');
+    instructions.push('Rewrite the finding text for clarity and professionalism without changing meaning.');
+  } else if (hasTemplate) {
+    instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.');
+    instructions.push('Use the template field labels (lines ending in a colon) as section keys and preserve their order.');
+    instructions.push('Sort each finding into the best matching template field.');
+    instructions.push('Findings that do not match any template field must go into an Other section.');
+    instructions.push('If no input findings apply to a template field, keep that field text exactly the same as templateSectionDefaults for that field.');
+    instructions.push('If the template does not contain Impression, include an Impression section at the end.');
+  } else {
+    instructions.push('Output shape must be exactly: {"sections":{"Findings":"...","Impression":"..."}}.');
+    instructions.push('Generate a full report from findings and study context.');
+    instructions.push('Include pertinent negatives appropriate for the study type when clinically justified.');
+  }
+
   var context = {
-    requestedSections: payload.sectionOrder || [],
+    outputMode: outputMode,
     findingsLanguageRule: findingsModeMap[payload.findingsLanguageMode] || findingsModeMap.improve,
-    impressionRule: impressionModeMap[payload.impressionMode] || impressionModeMap.concise,
+    studyType: payload.studyType || '',
+    indication: payload.indication || '',
     findingsInput: payload.findings || '',
-    templateText: payload.templateText || '',
+    templateText: templateText,
+    templateFields: extractTemplateFieldNames(templateText),
+    templateSectionDefaults: extractTemplateSectionDefaults(templateText),
     phraseHandlingRules: payload.phraseHandlingText || ''
   };
 
@@ -921,6 +1014,56 @@ function buildReportPrompt(payload) {
     system: instructions.join('\n'),
     user: JSON.stringify(context)
   };
+}
+
+function extractTemplateFieldNames(templateText) {
+  var lines = String(templateText || '').split(/\r?\n/);
+  var seen = {};
+  var fields = [];
+
+  lines.forEach(function(line) {
+    var match = String(line || '').match(/^\s*([A-Za-z][A-Za-z0-9\s\/()&+\-]{0,60})\s*:/);
+    if (!match || !match[1]) return;
+    var field = String(match[1]).trim();
+    var key = field.toLowerCase();
+    if (!field || seen[key]) return;
+    seen[key] = true;
+    fields.push(field);
+  });
+
+  return fields;
+}
+
+function extractTemplateSectionDefaults(templateText) {
+  var lines = String(templateText || '').split(/\r?\n/);
+  var sections = {};
+  var currentField = null;
+  var buffer = [];
+
+  function flushBuffer() {
+    if (!currentField) return;
+    sections[currentField] = buffer.join('\n').trim();
+  }
+
+  lines.forEach(function(line) {
+    var raw = String(line || '');
+    var match = raw.match(/^\s*([A-Za-z][A-Za-z0-9\s\/()&+\-]{0,60})\s*:\s*(.*)$/);
+    if (match && match[1]) {
+      flushBuffer();
+      currentField = String(match[1]).trim();
+      buffer = [];
+      var inlineText = String(match[2] || '').trim();
+      if (inlineText) buffer.push(inlineText);
+      return;
+    }
+
+    if (currentField) {
+      buffer.push(raw);
+    }
+  });
+
+  flushBuffer();
+  return sections;
 }
 
 function buildPhraseHandlingDraftPrompt(exampleText) {
@@ -978,7 +1121,6 @@ async function generateWithBrowserOpenAi(payload) {
     },
     body: JSON.stringify({
       model: String(payload.model || 'gpt-4o-mini').trim(),
-      temperature: 0.2,
       messages: [
         { role: 'system', content: prompt.system },
         { role: 'user', content: prompt.user }
@@ -997,11 +1139,11 @@ async function generateWithBrowserOpenAi(payload) {
     : '';
 
   var parsed = extractJsonObject(content);
-  if (parsed && parsed.sections && typeof parsed.sections === 'object') {
-    return { data: { sections: parsed.sections } };
+  if (parsed && typeof parsed === 'object') {
+    return { data: parsed };
   }
 
-  return { data: { text: content, sections: {} } };
+  return { data: { text: content } };
 }
 
 async function generatePhraseHandlingDraftWithBrowserOpenAi(payload) {
@@ -1023,7 +1165,6 @@ async function generatePhraseHandlingDraftWithBrowserOpenAi(payload) {
     },
     body: JSON.stringify({
       model: String(payload.model || 'gpt-4o-mini').trim(),
-      temperature: 0.2,
       messages: [
         { role: 'system', content: prompt.system },
         { role: 'user', content: prompt.user }
