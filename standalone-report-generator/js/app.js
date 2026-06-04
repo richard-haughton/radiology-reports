@@ -7,6 +7,9 @@ var _phraseHandlings = [];
 var _pendingPhraseHandlingSelection = '';
 var _unsubscribePhraseHandlings = null;
 var _toastTimer = null;
+var DESIRED_OUTPUT_TEXT_KEY = 'reportGenerator.desiredOutputDraft';
+var DESIRED_OUTPUT_ENABLED_KEY = 'reportGenerator.desiredOutputLearningEnabled';
+var ADAPTIVE_GUIDANCE_KEY = 'reportGenerator.adaptiveGuidanceByMode';
 var AI_PROVIDER_CONFIG = {
   openai: {
     label: 'OpenAI',
@@ -94,6 +97,7 @@ document.addEventListener('DOMContentLoaded', function() {
   bindReportEvents();
   initOpenAiKeyControls();
   initAiSettingsToggle();
+  initDesiredOutputLearningUi();
 
   appAuth.onAuthStateChanged(function(user) {
     if (!user) {
@@ -175,6 +179,23 @@ function bindReportEvents() {
   if (phraseChecklist) {
     phraseChecklist.addEventListener('change', handlePhraseChecklistChange);
   }
+
+  var applyDesiredLearningBtn = document.getElementById('btn-apply-desired-output-learning');
+  if (applyDesiredLearningBtn) applyDesiredLearningBtn.addEventListener('click', handleApplyDesiredOutputLearning);
+
+  var desiredOutputInput = document.getElementById('desired-output-input');
+  if (desiredOutputInput) {
+    desiredOutputInput.addEventListener('input', function() {
+      persistDesiredOutputDraft(desiredOutputInput.value || '');
+    });
+  }
+
+  var desiredLearningToggle = document.getElementById('desired-output-learning-toggle');
+  if (desiredLearningToggle) {
+    desiredLearningToggle.addEventListener('change', function() {
+      persistDesiredOutputLearningEnabled(desiredLearningToggle.checked);
+    });
+  }
 }
 
 function initOpenAiKeyControls() {
@@ -224,6 +245,121 @@ function initAiSettingsToggle() {
     toggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
     bodyEl.style.display = next ? 'block' : 'none';
   });
+}
+
+function initDesiredOutputLearningUi() {
+  var toggleBtn = document.getElementById('btn-toggle-desired-output');
+  var bodyEl = document.getElementById('desired-output-body');
+  var desiredOutputInput = document.getElementById('desired-output-input');
+  var desiredLearningToggle = document.getElementById('desired-output-learning-toggle');
+
+  if (desiredOutputInput) {
+    desiredOutputInput.value = loadDesiredOutputDraft();
+  }
+
+  if (desiredLearningToggle) {
+    desiredLearningToggle.checked = loadDesiredOutputLearningEnabled();
+  }
+
+  if (!toggleBtn || !bodyEl) return;
+  toggleBtn.addEventListener('click', function() {
+    var expanded = String(toggleBtn.getAttribute('aria-expanded') || 'false') === 'true';
+    var next = !expanded;
+    toggleBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+    bodyEl.style.display = next ? 'block' : 'none';
+  });
+}
+
+function setDesiredOutputLearningStatus(message, isError) {
+  var el = document.getElementById('desired-output-learning-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.color = isError ? 'var(--danger)' : 'var(--ink-muted)';
+}
+
+function getDesiredOutputDraft() {
+  var input = document.getElementById('desired-output-input');
+  return input ? String(input.value || '').trim() : '';
+}
+
+function getDesiredOutputLearningEnabled() {
+  var toggle = document.getElementById('desired-output-learning-toggle');
+  return !!(toggle && toggle.checked);
+}
+
+function persistDesiredOutputDraft(value) {
+  try {
+    localStorage.setItem(DESIRED_OUTPUT_TEXT_KEY, String(value || ''));
+  } catch (err) {
+    // Ignore localStorage failures.
+  }
+}
+
+function loadDesiredOutputDraft() {
+  try {
+    return String(localStorage.getItem(DESIRED_OUTPUT_TEXT_KEY) || '');
+  } catch (err) {
+    return '';
+  }
+}
+
+function persistDesiredOutputLearningEnabled(enabled) {
+  try {
+    localStorage.setItem(DESIRED_OUTPUT_ENABLED_KEY, enabled ? '1' : '0');
+  } catch (err) {
+    // Ignore localStorage failures.
+  }
+}
+
+function loadDesiredOutputLearningEnabled() {
+  try {
+    var raw = String(localStorage.getItem(DESIRED_OUTPUT_ENABLED_KEY) || '').trim();
+    if (!raw) return true;
+    return raw !== '0';
+  } catch (err) {
+    return true;
+  }
+}
+
+function loadAdaptiveGuidanceMap() {
+  try {
+    var raw = String(localStorage.getItem(ADAPTIVE_GUIDANCE_KEY) || '').trim();
+    if (!raw) return {};
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed;
+  } catch (err) {
+    return {};
+  }
+}
+
+function persistAdaptiveGuidanceMap(map) {
+  try {
+    localStorage.setItem(ADAPTIVE_GUIDANCE_KEY, JSON.stringify(map || {}));
+  } catch (err) {
+    // Ignore localStorage failures.
+  }
+}
+
+function getSavedAdaptiveGuidanceForMode(outputMode) {
+  var map = loadAdaptiveGuidanceMap();
+  var cleanMode = String(outputMode || 'full').trim() || 'full';
+  var entry = map[cleanMode] && typeof map[cleanMode] === 'object' ? map[cleanMode] : null;
+  return entry ? String(entry.guidance || '').trim() : '';
+}
+
+function saveAdaptiveGuidanceForMode(outputMode, guidance, meta) {
+  var cleanMode = String(outputMode || 'full').trim() || 'full';
+  var cleanGuidance = String(guidance || '').trim();
+  if (!cleanGuidance) return;
+
+  var map = loadAdaptiveGuidanceMap();
+  map[cleanMode] = {
+    guidance: cleanGuidance,
+    updatedAt: new Date().toISOString(),
+    source: meta && meta.source ? String(meta.source) : 'desired-output'
+  };
+  persistAdaptiveGuidanceMap(map);
 }
 
 function handleClearSavedOpenAiKey() {
@@ -533,18 +669,31 @@ async function handleImportTemplateFile(event) {
   }
 }
 
-function getReportLanguageMode() {
-  var select = document.getElementById('report-findings-language-mode');
-  var value = select ? String(select.value || '').trim() : '';
-  if (value === 'exact') return 'exact';
-  return 'improve';
-}
-
 function getReportOutputMode() {
   var select = document.getElementById('report-output-mode');
   var value = select ? String(select.value || '').trim() : '';
-  if (value === 'impression' || value === 'improve-finding' || value === 'chat') return value;
+  if (
+    value === 'impression' ||
+    value === 'improve-impression' ||
+    value === 'improve-finding' ||
+    value === 'full-keep-findings'
+  ) return value;
   return 'full';
+}
+
+function isFullReportMode(mode) {
+  var clean = String(mode || '').trim();
+  return clean === 'full' || clean === 'full-keep-findings';
+}
+
+function isImpressionMode(mode) {
+  var clean = String(mode || '').trim();
+  return clean === 'impression' || clean === 'improve-impression';
+}
+
+function getReportChatModeEnabled() {
+  var checkbox = document.getElementById('report-chat-mode-toggle');
+  return !!(checkbox && checkbox.checked);
 }
 
 function getReportStudyType() {
@@ -570,10 +719,13 @@ async function handleGenerateReport() {
   var templateState = getTemplateEditorState();
   var templateText = templateState.body || (selectedTemplate ? selectedTemplate.body : '');
   var outputMode = getReportOutputMode();
+  var chatModeEnabled = getReportChatModeEnabled();
   var studyType = getReportStudyType();
   var indication = getReportIndication();
+  var desiredOutputDraft = getDesiredOutputDraft();
+  var desiredLearningEnabled = getDesiredOutputLearningEnabled();
 
-  if (!findings && outputMode !== 'full') {
+  if (!findings && !isFullReportMode(outputMode)) {
     setReportStatus('Enter findings input for this generation mode.', true);
     return;
   }
@@ -581,7 +733,7 @@ async function handleGenerateReport() {
   setReportStatus('Generating report...', false);
 
   try {
-    if (!String(templateText || '').trim() && (outputMode === 'full' || outputMode === 'chat')) {
+    if (!String(templateText || '').trim() && isFullReportMode(outputMode)) {
       setReportStatus('No template provided. Generating comprehensive template...', false);
       templateText = await generateComprehensiveTemplateWithAi({
         provider: getSelectedAiProvider(),
@@ -594,22 +746,38 @@ async function handleGenerateReport() {
       setReportStatus('Comprehensive template generated. Building report draft...', false);
     }
 
-    var response = await generateWithBrowserAiProvider({
+    var adaptiveGuidance = await prepareAdaptiveGuidanceForGeneration({
       provider: getSelectedAiProvider(),
       model: getSelectedAiModel(),
       outputMode: outputMode,
       findings: findings,
       studyType: studyType,
       indication: indication,
-      findingsLanguageMode: getReportLanguageMode(),
       templateText: templateText,
-      phraseHandlingText: getActivePhraseHandlingText()
+      currentDraft: String(outputEl.value || '').trim(),
+      desiredOutputDraft: desiredOutputDraft,
+      desiredLearningEnabled: desiredLearningEnabled,
+      announceProgress: true
+    });
+
+    var response = await generateWithBrowserAiProvider({
+      provider: getSelectedAiProvider(),
+      model: getSelectedAiModel(),
+      outputMode: outputMode,
+      chatModeEnabled: chatModeEnabled,
+      findings: findings,
+      studyType: studyType,
+      indication: indication,
+      templateText: templateText,
+      phraseHandlingText: getActivePhraseHandlingText(),
+      desiredOutputDraft: desiredLearningEnabled ? desiredOutputDraft : '',
+      adaptiveGuidance: adaptiveGuidance
     });
 
     var data = response && response.data ? response.data : {};
     outputEl.value = formatReportOutputFromData(data, outputMode);
 
-    if (outputMode === 'chat') {
+    if (chatModeEnabled) {
       var initialQuestions = normalizeFollowUpQuestions(data && data.followUpQuestions);
       if (initialQuestions.length) {
         setReportStatus('CHAT mode: asking follow-up questions...', false);
@@ -621,17 +789,19 @@ async function handleGenerateReport() {
             model: getSelectedAiModel(),
             promptOverride: buildChatRefinementPrompt({
               findings: findings,
+              outputMode: outputMode,
               studyType: studyType,
               indication: indication,
-              findingsLanguageMode: getReportLanguageMode(),
               templateText: templateText,
               phraseHandlingText: getActivePhraseHandlingText(),
+              desiredOutputDraft: desiredLearningEnabled ? desiredOutputDraft : '',
+              adaptiveGuidance: adaptiveGuidance,
               initialDraft: data,
               followUpAnswers: answers
             })
           });
           var refinementData = refinement && refinement.data ? refinement.data : {};
-          outputEl.value = formatReportOutputFromData(refinementData, 'full');
+          outputEl.value = formatReportOutputFromData(refinementData, outputMode);
           setReportStatus('CHAT mode: draft refined with follow-up answers.', false);
           showToast('CHAT refinement complete.');
           return;
@@ -643,6 +813,44 @@ async function handleGenerateReport() {
     showToast('Report draft generated.');
   } catch (err) {
     setReportStatus((err && err.message) || 'Failed to generate report.', true);
+  }
+}
+
+async function handleApplyDesiredOutputLearning() {
+  var outputMode = getReportOutputMode();
+  var findings = String((document.getElementById('report-findings-input') || {}).value || '').trim();
+  var outputText = String((document.getElementById('report-output') || {}).value || '').trim();
+  var desiredOutputDraft = getDesiredOutputDraft();
+
+  if (!desiredOutputDraft) {
+    setDesiredOutputLearningStatus('Paste a final draft first.', true);
+    return;
+  }
+
+  try {
+    setDesiredOutputLearningStatus('Applying desired output learning...', false);
+    await prepareAdaptiveGuidanceForGeneration({
+      provider: getSelectedAiProvider(),
+      model: getSelectedAiModel(),
+      outputMode: outputMode,
+      findings: findings,
+      studyType: getReportStudyType(),
+      indication: getReportIndication(),
+      templateText: (getTemplateEditorState() || {}).body || '',
+      currentDraft: outputText,
+      desiredOutputDraft: desiredOutputDraft,
+      desiredLearningEnabled: true,
+      announceProgress: false,
+      forceLearning: true
+    });
+
+    setDesiredOutputLearningStatus('Desired output learning updated for this generation mode.', false);
+    setReportStatus('Algorithm guidance updated from desired output.', false);
+    showToast('Desired output learning applied.');
+  } catch (err) {
+    var msg = (err && err.message) || 'Failed to apply desired output learning.';
+    setDesiredOutputLearningStatus(msg, true);
+    setReportStatus(msg, true);
   }
 }
 
@@ -698,7 +906,7 @@ function formatReportOutputFromData(data, outputMode) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
 
-  if (mode === 'impression') {
+  if (isImpressionMode(mode)) {
     var impression = String(payload.impression || '').trim();
     if (!impression && payload.sections && typeof payload.sections === 'object') {
       impression = String(payload.sections.Impression || payload.sections.impression || '').trim();
@@ -810,23 +1018,32 @@ function collectFollowUpAnswers(questions) {
 }
 
 function buildChatRefinementPrompt(payload) {
-  var findingsModeMap = {
-    exact: 'When inserting findings into a report field, keep wording as close as possible to the source findings text.',
-    improve: 'Improve grammar and readability while preserving exact clinical meaning.'
-  };
-
   var system = [
     'You are a subspecialty-experienced radiologist refining a report draft using user-provided clarifications.',
     'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
-    'Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.',
     'Do not invent findings that are not in the original input or follow-up answers.',
     'Never use placeholders like "Not specifically described" or "Not evaluated" for unremarkable sections.',
     'When no positive finding is present in a section, use concise anatomy-appropriate pertinent negatives.',
     'Apply phraseHandlingRules exactly when they are provided.'
   ].join('\n');
 
+  var outputMode = String(payload.outputMode || 'full').trim();
+  var adaptiveGuidance = String(payload.adaptiveGuidance || '').trim();
+  if (adaptiveGuidance) {
+    system += '\nAdaptive guidance from user final drafts for this mode:\n' + adaptiveGuidance;
+  }
+  if (isImpressionMode(outputMode)) {
+    system += '\nOutput shape must be exactly: {"impression":"..."}.';
+    system += '\nReturn only an updated impression based on the initial draft and follow-up clarifications.';
+  } else if (outputMode === 'improve-finding') {
+    system += '\nOutput shape must be exactly: {"improvedFinding":"..."}.';
+    system += '\nReturn only an updated improved finding based on the initial draft and follow-up clarifications.';
+  } else {
+    system += '\nOutput shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.';
+  }
+
   var user = {
-    findingsLanguageRule: findingsModeMap[payload.findingsLanguageMode] || findingsModeMap.improve,
+    outputMode: outputMode,
     studyType: payload.studyType || '',
     indication: payload.indication || '',
     findingsInput: payload.findings || '',
@@ -834,6 +1051,8 @@ function buildChatRefinementPrompt(payload) {
     templateFields: extractTemplateFieldNames(payload.templateText || ''),
     templateSectionDefaults: extractTemplateSectionDefaults(payload.templateText || ''),
     phraseHandlingRules: payload.phraseHandlingText || '',
+    desiredOutputDraft: payload.desiredOutputDraft || '',
+    adaptiveGuidance: adaptiveGuidance,
     initialDraft: payload.initialDraft || {},
     followUpClarifications: payload.followUpAnswers || []
   };
@@ -1232,14 +1451,11 @@ function applyTemplateContextToGenerationFields(template) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildReportPrompt(payload) {
-  var findingsModeMap = {
-    exact: 'When inserting findings into a report field, keep wording as close as possible to the source findings text.',
-    improve: 'Improve grammar and readability while preserving exact clinical meaning.'
-  };
-
   var outputMode = String(payload.outputMode || 'full').trim();
+  var chatModeEnabled = !!payload.chatModeEnabled;
   var templateText = String(payload.templateText || '').trim();
   var hasTemplate = !!templateText;
+  var adaptiveGuidance = String(payload.adaptiveGuidance || '').trim();
 
   var instructions = [
     'You are a subspecialty-experienced radiologist generating a high-quality diagnostic report draft.',
@@ -1248,48 +1464,156 @@ function buildReportPrompt(payload) {
     'Apply phraseHandlingRules exactly when they are provided.'
   ];
 
+  if (adaptiveGuidance) {
+    instructions.push('Adaptive guidance from prior user final drafts for this mode:\n' + adaptiveGuidance);
+  }
+
   if (outputMode === 'impression') {
-    instructions.push('Output shape must be exactly: {"impression":"..."}.');
-    instructions.push('Generate only the Impression text and prioritize clinically important conclusions.');
+    instructions.push('Generate only the Impression text directly from findings and prioritize clinically important conclusions.');
+  } else if (outputMode === 'improve-impression') {
+    instructions.push('Rewrite the provided impression text for clarity and professionalism without changing meaning.');
   } else if (outputMode === 'improve-finding') {
-    instructions.push('Output shape must be exactly: {"improvedFinding":"..."}.');
     instructions.push('Rewrite the finding text for clarity and professionalism without changing meaning.');
-  } else if (outputMode === 'chat') {
-    instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."},"followUpQuestions":[{"question":"...","rationale":"..."}]}.');
-    instructions.push('Generate a full report draft first, then include 0-4 concise follow-up questions that would materially improve report quality if answered.');
-    instructions.push('Ask only clinically meaningful missing details. Example: if aortic dissection is described without flap location, ask for flap location.');
-    instructions.push('If no high-value clarifications are needed, return an empty followUpQuestions array.');
   } else if (hasTemplate) {
-    instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.');
     instructions.push('Use the template field labels (lines ending in a colon) as section keys and preserve their order.');
     instructions.push('Sort each finding into the best matching template field.');
+    if (outputMode === 'full-keep-findings') {
+      instructions.push('Keep finding language exact while sorting into sections; do not paraphrase or improve wording.');
+    } else {
+      instructions.push('Improve language for clarity and professionalism while preserving original clinical meaning.');
+    }
     instructions.push('Findings that do not match any template field must go into an Other section.');
     instructions.push('If no input findings apply to a template field, keep that field text exactly the same as templateSectionDefaults for that field.');
     instructions.push('Never replace a section with placeholder text like "Not specifically described", "Not evaluated", or "Not mentioned".');
     instructions.push('If a section has no positive finding, preserve or provide concise anatomy-appropriate pertinent negatives instead.');
     instructions.push('If the template does not contain Impression, include an Impression section at the end.');
   } else {
-    instructions.push('Output shape must be exactly: {"sections":{"Findings":"...","Impression":"..."}}.');
     instructions.push('Generate a full report from findings and study context.');
+    if (outputMode === 'full-keep-findings') {
+      instructions.push('Keep finding language exact; organize and sort findings without paraphrasing.');
+    } else {
+      instructions.push('Improve language for clarity and professionalism while preserving original clinical meaning.');
+    }
     instructions.push('Include pertinent negatives appropriate for the study type when clinically justified.');
+  }
+
+  if (chatModeEnabled) {
+    if (isImpressionMode(outputMode)) {
+      instructions.push('Output shape must be exactly: {"impression":"...","followUpQuestions":[{"question":"...","rationale":"..."}]}.');
+    } else if (outputMode === 'improve-finding') {
+      instructions.push('Output shape must be exactly: {"improvedFinding":"...","followUpQuestions":[{"question":"...","rationale":"..."}]}.');
+    } else {
+      instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."},"followUpQuestions":[{"question":"...","rationale":"..."}]}.');
+    }
+    instructions.push('Generate the requested draft first, then include 0-4 concise follow-up questions that would materially improve report quality if answered.');
+    instructions.push('Ask only clinically meaningful missing details. Example: if aortic dissection is described without flap location, ask for flap location.');
+    instructions.push('If no high-value clarifications are needed, return an empty followUpQuestions array.');
+  } else if (isImpressionMode(outputMode)) {
+    instructions.push('Output shape must be exactly: {"impression":"..."}.');
+  } else if (outputMode === 'improve-finding') {
+    instructions.push('Output shape must be exactly: {"improvedFinding":"..."}.');
+  } else if (hasTemplate) {
+    instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.');
+  } else {
+    instructions.push('Output shape must be exactly: {"sections":{"Findings":"...","Impression":"..."}}.');
   }
 
   var context = {
     outputMode: outputMode,
-    findingsLanguageRule: findingsModeMap[payload.findingsLanguageMode] || findingsModeMap.improve,
+    chatModeEnabled: chatModeEnabled,
     studyType: payload.studyType || '',
     indication: payload.indication || '',
     findingsInput: payload.findings || '',
     templateText: templateText,
     templateFields: extractTemplateFieldNames(templateText),
     templateSectionDefaults: extractTemplateSectionDefaults(templateText),
-    phraseHandlingRules: payload.phraseHandlingText || ''
+    phraseHandlingRules: payload.phraseHandlingText || '',
+    desiredOutputDraft: payload.desiredOutputDraft || '',
+    adaptiveGuidance: adaptiveGuidance
   };
 
   return {
     system: instructions.join('\n'),
     user: JSON.stringify(context)
   };
+}
+
+function buildAdaptiveGuidancePrompt(payload) {
+  var system = [
+    'You are improving a radiology report generation algorithm from supervised user edits.',
+    'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
+    'Output shape must be exactly: {"guidance":"..."}.',
+    'Produce concise, implementation-ready guidance that can be appended to future prompt instructions.',
+    'Focus on changes implied by the user final draft compared with findings and current draft.',
+    'Never include patient identifiers, dates, or personally identifying details.'
+  ].join('\n');
+
+  var user = {
+    outputMode: String(payload.outputMode || 'full').trim(),
+    studyType: payload.studyType || '',
+    indication: payload.indication || '',
+    findingsInput: payload.findings || '',
+    templateFields: extractTemplateFieldNames(payload.templateText || ''),
+    currentDraft: payload.currentDraft || '',
+    desiredOutputDraft: payload.desiredOutputDraft || '',
+    priorGuidanceForMode: payload.priorGuidance || ''
+  };
+
+  return {
+    system: system,
+    user: JSON.stringify(user)
+  };
+}
+
+async function generateAdaptiveGuidanceWithAi(payload) {
+  var response = await generateWithBrowserAiProvider({
+    provider: payload.provider,
+    model: payload.model,
+    promptOverride: buildAdaptiveGuidancePrompt(payload)
+  });
+
+  var data = response && response.data ? response.data : {};
+  return String(data.guidance || data.text || '').trim();
+}
+
+async function prepareAdaptiveGuidanceForGeneration(payload) {
+  var outputMode = String(payload.outputMode || 'full').trim() || 'full';
+  var savedGuidance = getSavedAdaptiveGuidanceForMode(outputMode);
+  var desiredOutputDraft = String(payload.desiredOutputDraft || '').trim();
+  var learningEnabled = !!payload.desiredLearningEnabled;
+  var forceLearning = !!payload.forceLearning;
+  var shouldLearnNow = !!desiredOutputDraft && (forceLearning || learningEnabled);
+
+  if (!shouldLearnNow) {
+    return savedGuidance;
+  }
+
+  if (payload.announceProgress) {
+    setReportStatus('Improving algorithm from desired output...', false);
+  }
+  setDesiredOutputLearningStatus('Deriving adaptive guidance from your final draft...', false);
+
+  var learnedGuidance = await generateAdaptiveGuidanceWithAi({
+    provider: payload.provider,
+    model: payload.model,
+    outputMode: outputMode,
+    findings: payload.findings,
+    studyType: payload.studyType,
+    indication: payload.indication,
+    templateText: payload.templateText,
+    currentDraft: payload.currentDraft,
+    desiredOutputDraft: desiredOutputDraft,
+    priorGuidance: savedGuidance
+  });
+
+  if (!learnedGuidance) {
+    setDesiredOutputLearningStatus('No new guidance extracted from desired output.', false);
+    return savedGuidance;
+  }
+
+  saveAdaptiveGuidanceForMode(outputMode, learnedGuidance, { source: 'desired-output' });
+  setDesiredOutputLearningStatus('Adaptive guidance saved for this mode.', false);
+  return learnedGuidance;
 }
 
 function extractTemplateFieldNames(templateText) {

@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reports</title>
   <meta name="description" content="Standalone report generator for radiology draft creation." />
-  <link rel="stylesheet" href="css/app.css?v=20260603c" />
+  <link rel="stylesheet" href="css/app.css?v=20260604b" />
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-  <script src="js/firebase-config.js?v=20260603c"></script>
-  <script src="js/app.js?v=20260603c"></script>
+  <script src="js/firebase-config.js?v=20260604a"></script>
+  <script src="js/app.js?v=20260604c"></script>
 </head>
 <body>
   <div id="hipaa-warning" style="background:#b91c1c;color:#fff;font-weight:bold;text-align:center;padding:12px 16px;font-size:1.05rem;letter-spacing:0.01em;">
@@ -133,11 +133,17 @@
 
           <label class="form-label" for="report-output-mode">Generation mode</label>
           <select id="report-output-mode" class="form-input">
-            <option value="full" selected>Entire report generation</option>
-            <option value="impression">Impression only</option>
-            <option value="improve-finding">Improve language of finding</option>
-            <option value="chat">CHAT mode (AI follow-up questions)</option>
+            <option value="full" selected>Full Report - Improve Language</option>
+            <option value="full-keep-findings">Full Report - Sort (Keeps Exact Findings)</option>
+            <option value="impression">Impression - From Findings</option>
+            <option value="improve-impression">Improve Impression</option>
+            <option value="improve-finding">Improve Finding</option>
           </select>
+
+          <label class="form-label form-check-label" for="report-chat-mode-toggle">
+            <input id="report-chat-mode-toggle" type="checkbox" />
+            Enable CHAT mode (AI follow-up questions)
+          </label>
 
           <div class="row-2">
             <label class="form-label" for="report-study-type-input">Study type
@@ -152,13 +158,6 @@
           <label class="form-label" for="report-findings-input">Findings input</label>
           <textarea id="report-findings-input" class="form-input" rows="8" placeholder="Enter findings here..."></textarea>
 
-          <label class="form-label" for="report-findings-language-mode">Findings language style
-            <select id="report-findings-language-mode" class="form-input">
-              <option value="exact">Keep exact language</option>
-              <option value="improve" selected>Improve language</option>
-            </select>
-          </label>
-
           <div class="row-actions">
             <button id="btn-generate-report" class="btn btn-accent" type="button">Generate Report</button>
             <button id="btn-use-template-direct" class="btn btn-ghost" type="button">Use Template Directly</button>
@@ -170,6 +169,30 @@
         <section class="report-card">
           <h2>Draft Report</h2>
           <textarea id="report-output" class="form-input report-output" rows="18" placeholder="Generated report will appear here..."></textarea>
+        </section>
+
+        <section class="report-card desired-output-card">
+          <button id="btn-toggle-desired-output" class="section-toggle" type="button" aria-expanded="false" aria-controls="desired-output-body">
+            <span>Desired Output Learning</span>
+            <span id="desired-output-chevron" class="section-toggle-chevron">▾</span>
+          </button>
+
+          <div id="desired-output-body" class="section-toggle-body" style="display:none">
+            <p class="muted desired-output-help">Paste your final edited draft here. The app will use findings + generation mode + this draft to improve future prompting.</p>
+
+            <label class="form-label" for="desired-output-input">Your final draft</label>
+            <textarea id="desired-output-input" class="form-input" rows="7" placeholder="Paste the final report you want the generator to learn from..."></textarea>
+
+            <label class="form-label form-check-label" for="desired-output-learning-toggle">
+              <input id="desired-output-learning-toggle" type="checkbox" checked />
+              Use desired output to improve generation algorithm
+            </label>
+
+            <div class="row-actions">
+              <button id="btn-apply-desired-output-learning" class="btn btn-ghost btn-sm" type="button">Apply Learning Now</button>
+            </div>
+            <p id="desired-output-learning-status" class="status"></p>
+          </div>
         </section>
       </section>
     </main>
