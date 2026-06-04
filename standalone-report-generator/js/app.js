@@ -161,9 +161,6 @@ function bindReportEvents() {
   var savePhraseBtn = document.getElementById('btn-save-phrase-handling');
   if (savePhraseBtn) savePhraseBtn.addEventListener('click', handleSavePhraseHandling);
 
-  var newPhraseBtn = document.getElementById('btn-new-phrase-handling');
-  if (newPhraseBtn) newPhraseBtn.addEventListener('click', handleNewPhraseHandling);
-
   var deletePhraseBtn = document.getElementById('btn-delete-phrase-handling');
   if (deletePhraseBtn) deletePhraseBtn.addEventListener('click', handleDeletePhraseHandling);
 
@@ -182,6 +179,9 @@ function bindReportEvents() {
 
   var applyDesiredLearningBtn = document.getElementById('btn-apply-desired-output-learning');
   if (applyDesiredLearningBtn) applyDesiredLearningBtn.addEventListener('click', handleApplyDesiredOutputLearning);
+
+  var saveDesiredLearningBtn = document.getElementById('btn-save-desired-output-learning');
+  if (saveDesiredLearningBtn) saveDesiredLearningBtn.addEventListener('click', handleSaveDesiredOutputLearning);
 
   var desiredOutputInput = document.getElementById('desired-output-input');
   if (desiredOutputInput) {
@@ -461,6 +461,10 @@ function userRef(uid) {
 
 function reportTemplatesRef(uid) {
   return userRef(uid).collection('reportTemplates');
+}
+
+function desiredOutputLearningsRef(uid) {
+  return userRef(uid).collection('desiredOutputLearnings');
 }
 
 function subscribeTemplates() {
@@ -854,6 +858,53 @@ async function handleApplyDesiredOutputLearning() {
   }
 }
 
+async function handleSaveDesiredOutputLearning() {
+  if (!_uid) {
+    setDesiredOutputLearningStatus('Sign in first to save learning.', true);
+    return;
+  }
+
+  var outputMode = getReportOutputMode();
+  var findings = String((document.getElementById('report-findings-input') || {}).value || '').trim();
+  var desiredOutputDraft = getDesiredOutputDraft();
+  var generatedDraft = String((document.getElementById('report-output') || {}).value || '').trim();
+
+  if (!desiredOutputDraft) {
+    setDesiredOutputLearningStatus('Paste a final draft first.', true);
+    return;
+  }
+
+  if (!findings) {
+    setDesiredOutputLearningStatus('Enter findings input before saving learning.', true);
+    return;
+  }
+
+  var payload = {
+    findingsInput: findings,
+    generationMode: outputMode,
+    desiredOutputDraft: desiredOutputDraft,
+    generatedDraft: generatedDraft,
+    studyType: getReportStudyType(),
+    indication: getReportIndication(),
+    aiProvider: getSelectedAiProvider(),
+    aiModel: getSelectedAiModel(),
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  try {
+    setDesiredOutputLearningStatus('Saving desired output learning...', false);
+    await desiredOutputLearningsRef(_uid).add(payload);
+    setDesiredOutputLearningStatus('Desired output learning saved to Firebase.', false);
+    setReportStatus('Desired output learning saved.', false);
+    showToast('Desired output learning saved.');
+  } catch (err) {
+    var msg = (err && err.message) || 'Failed to save desired output learning.';
+    setDesiredOutputLearningStatus(msg, true);
+    setReportStatus(msg, true);
+  }
+}
+
 function handleCopyReportOutput() {
   var outputEl = document.getElementById('report-output');
   if (!outputEl) return;
@@ -1033,6 +1084,8 @@ function buildChatRefinementPrompt(payload) {
     system += '\nAdaptive guidance from user final drafts for this mode:\n' + adaptiveGuidance;
   }
   if (isImpressionMode(outputMode)) {
+    system += '\nFor impression output, write a concise numbered list (e.g., 1., 2., 3.) with each line containing: key finding summary; most likely diagnosis (or focused differential when uncertain); and actionable recommendation when indicated.';
+    system += '\nPrioritize highest-risk and management-changing abnormalities first, avoid restating full findings, and avoid hedging when a leading diagnosis is supported.';
     system += '\nOutput shape must be exactly: {"impression":"..."}.';
     system += '\nReturn only an updated impression based on the initial draft and follow-up clarifications.';
   } else if (outputMode === 'improve-finding') {
@@ -1320,13 +1373,6 @@ function getPhraseHandlingEditorState() {
   };
 }
 
-function handleNewPhraseHandling() {
-  var select = document.getElementById('phrase-handling-select');
-  if (select) select.value = '';
-  _pendingPhraseHandlingSelection = '';
-  populatePhraseHandlingEditorFromSelection();
-}
-
 async function handleSavePhraseHandling() {
   if (!_uid) return;
 
@@ -1470,8 +1516,12 @@ function buildReportPrompt(payload) {
 
   if (outputMode === 'impression') {
     instructions.push('Generate only the Impression text directly from findings and prioritize clinically important conclusions.');
+    instructions.push('Write the Impression as a concise radiology-expert numbered list (1., 2., 3.).');
+    instructions.push('Each numbered line must include: key finding summary; most likely diagnosis or a focused differential diagnosis if uncertain; and a recommendation only when clinically indicated.');
+    instructions.push('Order by urgency/clinical impact and keep wording decisive, specific, and actionable.');
   } else if (outputMode === 'improve-impression') {
     instructions.push('Rewrite the provided impression text for clarity and professionalism without changing meaning.');
+    instructions.push('Return a concise radiology-expert numbered list (1., 2., 3.) where each item states finding summary, diagnosis or focused differential, and recommendation when indicated.');
   } else if (outputMode === 'improve-finding') {
     instructions.push('Rewrite the finding text for clarity and professionalism without changing meaning.');
   } else if (hasTemplate) {
