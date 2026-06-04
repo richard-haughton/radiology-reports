@@ -209,6 +209,15 @@ textarea.form-input {
   gap: 8px;
 }
 
+.row-actions-inline {
+  align-items: center;
+}
+
+.row-actions-inline .form-input {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+
 .row-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

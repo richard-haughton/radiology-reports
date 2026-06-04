@@ -1,7 +1,9 @@
 var _uid = null;
 var _templates = [];
+var _templateFolders = [];
 var _pendingTemplateSelection = '';
 var _unsubscribeTemplates = null;
+var _unsubscribeTemplateFolders = null;
 var _draftTemplatePhraseHandlingIds = null;
 var _phraseHandlings = [];
 var _pendingPhraseHandlingSelection = '';
@@ -114,12 +116,17 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('user-name').textContent = user.displayName || user.email || '';
 
     subscribeTemplates();
+    subscribeTemplateFolders();
     subscribePhraseHandlings();
   });
 });
 
 function bindReportEvents() {
   var templateSelect = document.getElementById('report-template-select');
+  var templateSortSelect = document.getElementById('template-sort-select');
+  var templateFolderFilterSelect = document.getElementById('template-folder-filter-select');
+  var createTemplateFolderBtn = document.getElementById('btn-create-template-folder');
+  var createTemplateFolderInput = document.getElementById('new-template-folder-input');
   var importBtn = document.getElementById('btn-report-template-import');
   var importInput = document.getElementById('report-template-import-input');
 
@@ -127,6 +134,33 @@ function bindReportEvents() {
     templateSelect.addEventListener('change', function() {
       _pendingTemplateSelection = String(templateSelect.value || '').trim();
       populateTemplateEditorFromSelection();
+    });
+  }
+
+  if (templateSortSelect) {
+    templateSortSelect.addEventListener('change', renderTemplateOptions);
+  }
+
+  if (templateFolderFilterSelect) {
+    templateFolderFilterSelect.addEventListener('change', function() {
+      var selected = getSelectedTemplate();
+      var matchesFilter = selected && templateMatchesFolderFilter(selected);
+      if (!matchesFilter) {
+        _pendingTemplateSelection = '';
+      }
+      renderTemplateOptions();
+    });
+  }
+
+  if (createTemplateFolderBtn) {
+    createTemplateFolderBtn.addEventListener('click', handleCreateTemplateFolder);
+  }
+
+  if (createTemplateFolderInput) {
+    createTemplateFolderInput.addEventListener('keydown', function(event) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      handleCreateTemplateFolder();
     });
   }
 
@@ -378,11 +412,16 @@ function teardownUserSubscriptions() {
     _unsubscribeTemplates();
     _unsubscribeTemplates = null;
   }
+  if (_unsubscribeTemplateFolders) {
+    _unsubscribeTemplateFolders();
+    _unsubscribeTemplateFolders = null;
+  }
   if (_unsubscribePhraseHandlings) {
     _unsubscribePhraseHandlings();
     _unsubscribePhraseHandlings = null;
   }
   _templates = [];
+  _templateFolders = [];
   _pendingTemplateSelection = '';
   _draftTemplatePhraseHandlingIds = null;
   _phraseHandlings = [];
@@ -463,6 +502,10 @@ function reportTemplatesRef(uid) {
   return userRef(uid).collection('reportTemplates');
 }
 
+function templateFoldersRef(uid) {
+  return userRef(uid).collection('templateFolders');
+}
+
 function desiredOutputLearningsRef(uid) {
   return userRef(uid).collection('desiredOutputLearnings');
 }
@@ -477,15 +520,15 @@ function subscribeTemplates() {
       data.id = doc.id;
       data.name = String(data.name || '').trim() || 'Untitled Template';
       data.body = String(data.body || '');
+      data.folder = normalizeTemplateFolderName(data.folder);
       data.studyType = String(data.studyType || '').trim();
       data.rulesText = String(data.rulesText || '');
       data.hasSelectedPhraseHandlingIds = Array.isArray(data.selectedPhraseHandlingIds);
       data.selectedPhraseHandlingIds = normalizePhraseHandlingIds(data.selectedPhraseHandlingIds);
       return data;
-    }).sort(function(a, b) {
-      return a.name.localeCompare(b.name);
     });
 
+    renderTemplateFolderOptions();
     renderTemplateOptions();
   }, function(err) {
     console.error('templates subscription error:', err);
@@ -493,21 +536,172 @@ function subscribeTemplates() {
   });
 }
 
+function subscribeTemplateFolders() {
+  if (!_uid) return;
+  if (_unsubscribeTemplateFolders) _unsubscribeTemplateFolders();
+
+  _unsubscribeTemplateFolders = templateFoldersRef(_uid).onSnapshot(function(snapshot) {
+    _templateFolders = snapshot.docs.map(function(doc) {
+      var data = doc.data() || {};
+      return {
+        id: doc.id,
+        name: normalizeTemplateFolderName(data.name || doc.id)
+      };
+    }).filter(function(folder) {
+      return !!folder.name;
+    }).sort(function(a, b) {
+      return a.name.localeCompare(b.name);
+    });
+
+    renderTemplateFolderOptions();
+    renderTemplateOptions();
+  }, function(err) {
+    console.error('template folders subscription error:', err);
+    setReportStatus('Failed to load template folders: ' + ((err && err.message) || 'Unknown error.'), true);
+  });
+}
+
+function normalizeTemplateFolderName(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function getAllTemplateFolderNames() {
+  var seen = {};
+  var names = [];
+
+  _templateFolders.forEach(function(folder) {
+    var name = normalizeTemplateFolderName(folder && folder.name);
+    if (!name) return;
+    var key = name.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    names.push(name);
+  });
+
+  _templates.forEach(function(template) {
+    var name = normalizeTemplateFolderName(template && template.folder);
+    if (!name) return;
+    var key = name.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    names.push(name);
+  });
+
+  return names.sort(function(a, b) {
+    return a.localeCompare(b);
+  });
+}
+
+function renderTemplateFolderOptions() {
+  var editorSelect = document.getElementById('template-folder-select');
+  var filterSelect = document.getElementById('template-folder-filter-select');
+  var folderNames = getAllTemplateFolderNames();
+
+  if (editorSelect) {
+    var selectedFolder = normalizeTemplateFolderName(editorSelect.value);
+    var editorHtml = '<option value="">No folder</option>';
+    folderNames.forEach(function(name) {
+      editorHtml += '<option value="' + escapeHtmlAttr(name) + '">' + escapeHtmlText(name) + '</option>';
+    });
+    editorSelect.innerHTML = editorHtml;
+    if (selectedFolder && folderNames.some(function(name) { return name === selectedFolder; })) {
+      editorSelect.value = selectedFolder;
+    } else {
+      editorSelect.value = '';
+    }
+  }
+
+  if (filterSelect) {
+    var selectedFilter = normalizeTemplateFolderName(filterSelect.value);
+    var filterHtml = '<option value="">All folders</option>';
+    folderNames.forEach(function(name) {
+      filterHtml += '<option value="' + escapeHtmlAttr(name) + '">' + escapeHtmlText(name) + '</option>';
+    });
+    filterSelect.innerHTML = filterHtml;
+    if (selectedFilter && folderNames.some(function(name) { return name === selectedFilter; })) {
+      filterSelect.value = selectedFilter;
+    } else {
+      filterSelect.value = '';
+    }
+  }
+}
+
+function getTemplateSortMode() {
+  var select = document.getElementById('template-sort-select');
+  var mode = select ? String(select.value || '').trim() : '';
+  if (mode === 'name-asc' || mode === 'name-desc' || mode === 'newest' || mode === 'oldest') {
+    return mode;
+  }
+  return 'folder-name';
+}
+
+function getTemplateFolderFilter() {
+  var select = document.getElementById('template-folder-filter-select');
+  return normalizeTemplateFolderName(select ? select.value : '');
+}
+
+function templateMatchesFolderFilter(template) {
+  var filter = getTemplateFolderFilter();
+  if (!filter) return true;
+  var folder = normalizeTemplateFolderName(template && template.folder);
+  return folder === filter;
+}
+
+function getTimestampMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  var asNumber = Number(value);
+  return Number.isFinite(asNumber) ? asNumber : 0;
+}
+
+function sortTemplates(templates) {
+  var mode = getTemplateSortMode();
+  return templates.slice().sort(function(a, b) {
+    var folderA = normalizeTemplateFolderName(a && a.folder).toLowerCase();
+    var folderB = normalizeTemplateFolderName(b && b.folder).toLowerCase();
+    var nameA = String((a && a.name) || '').toLowerCase();
+    var nameB = String((b && b.name) || '').toLowerCase();
+
+    if (mode === 'name-asc') return nameA.localeCompare(nameB);
+    if (mode === 'name-desc') return nameB.localeCompare(nameA);
+    if (mode === 'newest') {
+      var updatedA = getTimestampMillis(a && a.updatedAt);
+      var updatedB = getTimestampMillis(b && b.updatedAt);
+      return updatedB - updatedA || nameA.localeCompare(nameB);
+    }
+    if (mode === 'oldest') {
+      var createdA = getTimestampMillis((a && a.createdAt) || (a && a.updatedAt));
+      var createdB = getTimestampMillis((b && b.createdAt) || (b && b.updatedAt));
+      return createdA - createdB || nameA.localeCompare(nameB);
+    }
+
+    return folderA.localeCompare(folderB) || nameA.localeCompare(nameB);
+  });
+}
+
+function getVisibleTemplates() {
+  return sortTemplates(_templates.filter(templateMatchesFolderFilter));
+}
+
 function renderTemplateOptions() {
   var select = document.getElementById('report-template-select');
   if (!select) return;
 
   var selected = String(_pendingTemplateSelection || select.value || '').trim();
+  var visibleTemplates = getVisibleTemplates();
 
   function option(t) {
-    return '<option value="' + escapeHtmlAttr(t.id) + '">' + escapeHtmlText(t.name) + '</option>';
+    var folder = normalizeTemplateFolderName(t.folder);
+    var label = folder ? folder + ' / ' + t.name : t.name;
+    return '<option value="' + escapeHtmlAttr(t.id) + '">' + escapeHtmlText(label) + '</option>';
   }
 
   var html = '<option value="">No template</option>';
-  _templates.forEach(function(t) { html += option(t); });
+  visibleTemplates.forEach(function(t) { html += option(t); });
 
   select.innerHTML = html;
-  if (selected && _templates.some(function(t) { return t.id === selected; })) {
+  if (selected && visibleTemplates.some(function(t) { return t.id === selected; })) {
     select.value = selected;
   } else {
     select.value = '';
@@ -528,12 +722,14 @@ function populateTemplateEditorFromSelection() {
   var selected = getSelectedTemplate();
   var nameEl = document.getElementById('manual-template-name');
   var bodyEl = document.getElementById('manual-template-input');
+  var folderEl = document.getElementById('template-folder-select');
 
-  if (!nameEl || !bodyEl) return;
+  if (!nameEl || !bodyEl || !folderEl) return;
 
   if (!selected) {
     nameEl.value = '';
     bodyEl.value = '';
+    folderEl.value = '';
     setDraftTemplatePhraseHandlingIds(getDefaultPhraseHandlingSelectionIds());
     renderPhraseHandlingChecklist();
     applyTemplateContextToGenerationFields(null);
@@ -542,6 +738,7 @@ function populateTemplateEditorFromSelection() {
 
   nameEl.value = String(selected.name || '');
   bodyEl.value = String(selected.body || '');
+  folderEl.value = normalizeTemplateFolderName(selected.folder);
   setDraftTemplatePhraseHandlingIds(getTemplatePhraseHandlingIds(selected));
   renderPhraseHandlingChecklist();
   applyTemplateContextToGenerationFields(selected);
@@ -550,10 +747,51 @@ function populateTemplateEditorFromSelection() {
 function getTemplateEditorState() {
   var nameEl = document.getElementById('manual-template-name');
   var bodyEl = document.getElementById('manual-template-input');
+  var folderEl = document.getElementById('template-folder-select');
   return {
     name: nameEl ? String(nameEl.value || '').trim() : '',
-    body: bodyEl ? String(bodyEl.value || '').trim() : ''
+    body: bodyEl ? String(bodyEl.value || '').trim() : '',
+    folder: normalizeTemplateFolderName(folderEl ? folderEl.value : '')
   };
+}
+
+async function handleCreateTemplateFolder() {
+  if (!_uid) return;
+
+  var input = document.getElementById('new-template-folder-input');
+  var editorSelect = document.getElementById('template-folder-select');
+  if (!input || !editorSelect) return;
+
+  var folderName = normalizeTemplateFolderName(input.value);
+  if (!folderName) {
+    setReportStatus('Enter a folder name first.', true);
+    return;
+  }
+
+  var existing = getAllTemplateFolderNames().find(function(name) {
+    return name.toLowerCase() === folderName.toLowerCase();
+  });
+
+  if (existing) {
+    renderTemplateFolderOptions();
+    editorSelect.value = existing;
+    input.value = '';
+    setReportStatus('Folder already exists. Using existing folder.', false);
+    return;
+  }
+
+  try {
+    await templateFoldersRef(_uid).add({
+      name: folderName,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    input.value = '';
+    showToast('Folder created.');
+    setReportStatus('Folder created.', false);
+  } catch (err) {
+    setReportStatus((err && err.message) || 'Failed to create folder.', true);
+  }
 }
 
 function handleAppendTemplateToBody() {
@@ -586,6 +824,7 @@ async function handleSaveTemplate() {
   var payload = {
     name: name,
     body: state.body,
+    folder: state.folder,
     studyType: getReportStudyType(),
     selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -656,6 +895,7 @@ async function handleImportTemplateFile(event) {
     var ref = await reportTemplatesRef(_uid).add({
       name: name,
       body: body,
+      folder: normalizeTemplateFolderName((document.getElementById('template-folder-select') || {}).value),
       studyType: inferStudyTypeFromTemplate({ name: name, body: body }),
       rulesText: '',
       selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
