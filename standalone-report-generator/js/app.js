@@ -123,10 +123,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function bindReportEvents() {
   var templateSelect = document.getElementById('report-template-select');
-  var templateSortSelect = document.getElementById('template-sort-select');
   var templateFolderFilterSelect = document.getElementById('template-folder-filter-select');
   var createTemplateFolderBtn = document.getElementById('btn-create-template-folder');
-  var createTemplateFolderInput = document.getElementById('new-template-folder-input');
   var importBtn = document.getElementById('btn-report-template-import');
   var importInput = document.getElementById('report-template-import-input');
 
@@ -134,11 +132,17 @@ function bindReportEvents() {
     templateSelect.addEventListener('change', function() {
       _pendingTemplateSelection = String(templateSelect.value || '').trim();
       populateTemplateEditorFromSelection();
+      // Sync gen template select to match
+      var genSelect = document.getElementById('gen-template-select');
+      if (genSelect && genSelect.value !== templateSelect.value) {
+        var opt = genSelect.querySelector('option[value="' + templateSelect.value.replace(/"/g, '\\"') + '"]');
+        if (opt || !templateSelect.value) {
+          genSelect.value = templateSelect.value;
+        } else {
+          renderGenerationTemplateOptions();
+        }
+      }
     });
-  }
-
-  if (templateSortSelect) {
-    templateSortSelect.addEventListener('change', renderTemplateOptions);
   }
 
   if (templateFolderFilterSelect) {
@@ -156,14 +160,6 @@ function bindReportEvents() {
     createTemplateFolderBtn.addEventListener('click', handleCreateTemplateFolder);
   }
 
-  if (createTemplateFolderInput) {
-    createTemplateFolderInput.addEventListener('keydown', function(event) {
-      if (event.key !== 'Enter') return;
-      event.preventDefault();
-      handleCreateTemplateFolder();
-    });
-  }
-
   if (importBtn && importInput) {
     importBtn.addEventListener('click', function() {
       importInput.click();
@@ -177,8 +173,80 @@ function bindReportEvents() {
   var deleteBtn = document.getElementById('btn-delete-manual-template');
   if (deleteBtn) deleteBtn.addEventListener('click', handleDeleteTemplate);
 
+  var moveTemplateFolderBtn = document.getElementById('btn-move-template-folder');
+  if (moveTemplateFolderBtn) moveTemplateFolderBtn.addEventListener('click', handleMoveTemplateFolder);
+
   var appendBtn = document.getElementById('btn-append-template-to-body');
   if (appendBtn) appendBtn.addEventListener('click', handleAppendTemplateToBody);
+
+  var newTemplateBtn = document.getElementById('btn-new-template');
+  if (newTemplateBtn) newTemplateBtn.addEventListener('click', handleNewTemplate);
+
+  var createTemplateConfirmBtn = document.getElementById('btn-create-template-confirm');
+  if (createTemplateConfirmBtn) createTemplateConfirmBtn.addEventListener('click', handleCreateTemplateConfirm);
+
+  var createTemplateCancelBtn = document.getElementById('btn-create-template-cancel');
+  if (createTemplateCancelBtn) {
+    createTemplateCancelBtn.addEventListener('click', function() {
+      var dialog = document.getElementById('create-template-dialog');
+      if (dialog) dialog.close();
+    });
+  }
+
+  var createTemplateNameInput = document.getElementById('create-template-name');
+  if (createTemplateNameInput) {
+    createTemplateNameInput.addEventListener('keydown', function(event) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      var bodyEl = document.getElementById('create-template-body');
+      if (bodyEl) bodyEl.focus();
+    });
+  }
+
+  var genFolderSelect = document.getElementById('gen-folder-select');
+  if (genFolderSelect) {
+    genFolderSelect.addEventListener('change', renderGenerationTemplateOptions);
+  }
+
+  var genTemplateSelect = document.getElementById('gen-template-select');
+  if (genTemplateSelect) {
+    genTemplateSelect.addEventListener('change', function() {
+      var val = String(genTemplateSelect.value || '').trim();
+      _pendingTemplateSelection = val;
+      // Sync sidebar editor template select
+      var editorSelect = document.getElementById('report-template-select');
+      if (editorSelect) {
+        var opt = val ? editorSelect.querySelector('option[value="' + val.replace(/"/g, '\\"') + '"]') : true;
+        if (opt) {
+          editorSelect.value = val;
+        } else {
+          // Clear stale sidebar selection when current sidebar filter does not contain the generator template.
+          editorSelect.value = '';
+        }
+      }
+      var selectedFromGenerator = _templates.find(function(t) { return t.id === val; }) || null;
+      applyTemplateContextToGenerationFields(selectedFromGenerator);
+      populateTemplateEditorFromSelection();
+    });
+  }
+
+  var sidebarToggleBtn = document.getElementById('btn-toggle-sidebar');
+  if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener('click', function() {
+      var layout = document.getElementById('report-layout');
+      if (!layout) return;
+      var isCollapsed = layout.classList.contains('sidebar-collapsed');
+      if (isCollapsed) {
+        layout.classList.remove('sidebar-collapsed');
+        sidebarToggleBtn.textContent = '\u25c0';
+        sidebarToggleBtn.title = 'Collapse sidebar';
+      } else {
+        layout.classList.add('sidebar-collapsed');
+        sidebarToggleBtn.textContent = '\u25b6';
+        sidebarToggleBtn.title = 'Expand sidebar';
+      }
+    });
+  }
 
   var generateBtn = document.getElementById('btn-generate-report');
   if (generateBtn) generateBtn.addEventListener('click', handleGenerateReport);
@@ -627,12 +695,7 @@ function renderTemplateFolderOptions() {
 }
 
 function getTemplateSortMode() {
-  var select = document.getElementById('template-sort-select');
-  var mode = select ? String(select.value || '').trim() : '';
-  if (mode === 'name-asc' || mode === 'name-desc' || mode === 'newest' || mode === 'oldest') {
-    return mode;
-  }
-  return 'folder-name';
+  return 'name-asc';
 }
 
 function getTemplateFolderFilter() {
@@ -692,12 +755,10 @@ function renderTemplateOptions() {
   var visibleTemplates = getVisibleTemplates();
 
   function option(t) {
-    var folder = normalizeTemplateFolderName(t.folder);
-    var label = folder ? folder + ' / ' + t.name : t.name;
-    return '<option value="' + escapeHtmlAttr(t.id) + '">' + escapeHtmlText(label) + '</option>';
+    return '<option value="' + escapeHtmlAttr(t.id) + '">' + escapeHtmlText(t.name) + '</option>';
   }
 
-  var html = '<option value="">No template</option>';
+  var html = '<option value="">New template</option>';
   visibleTemplates.forEach(function(t) { html += option(t); });
 
   select.innerHTML = html;
@@ -709,25 +770,71 @@ function renderTemplateOptions() {
 
   _pendingTemplateSelection = String(select.value || '').trim();
   populateTemplateEditorFromSelection();
+  renderGenerationTemplateOptions();
+}
+
+function renderGenerationTemplateOptions() {
+  var genFolderSelect = document.getElementById('gen-folder-select');
+  var genTemplateSelect = document.getElementById('gen-template-select');
+  if (!genTemplateSelect) return;
+
+  // Populate gen folder dropdown
+  if (genFolderSelect) {
+    var folderNames = getAllTemplateFolderNames();
+    var selectedGenFolder = normalizeTemplateFolderName(genFolderSelect.value);
+    var folderHtml = '<option value="">All folders</option>';
+    folderNames.forEach(function(name) {
+      folderHtml += '<option value="' + escapeHtmlAttr(name) + '">' + escapeHtmlText(name) + '</option>';
+    });
+    genFolderSelect.innerHTML = folderHtml;
+    if (selectedGenFolder && folderNames.some(function(n) { return n === selectedGenFolder; })) {
+      genFolderSelect.value = selectedGenFolder;
+    } else {
+      genFolderSelect.value = '';
+    }
+  }
+
+  // Filter templates by selected gen folder
+  var genFolder = normalizeTemplateFolderName(genFolderSelect ? genFolderSelect.value : '');
+  var visibleTemplates = sortTemplates(_templates.filter(function(t) {
+    if (!genFolder) return true;
+    return normalizeTemplateFolderName(t && t.folder) === genFolder;
+  }));
+
+  function option(t) {
+    return '<option value="' + escapeHtmlAttr(t.id) + '">' + escapeHtmlText(t.name) + '</option>';
+  }
+
+  var selectedId = _pendingTemplateSelection || String(genTemplateSelect.value || '').trim();
+  var html = '<option value="">No template</option>';
+  visibleTemplates.forEach(function(t) { html += option(t); });
+  genTemplateSelect.innerHTML = html;
+
+  if (selectedId && visibleTemplates.some(function(t) { return t.id === selectedId; })) {
+    genTemplateSelect.value = selectedId;
+  } else {
+    genTemplateSelect.value = '';
+  }
 }
 
 function getSelectedTemplate() {
   var select = document.getElementById('report-template-select');
   var id = select ? String(select.value || '').trim() : '';
+  if (!id) {
+    id = String(_pendingTemplateSelection || '').trim();
+  }
   if (!id) return null;
   return _templates.find(function(t) { return t.id === id; }) || null;
 }
 
 function populateTemplateEditorFromSelection() {
   var selected = getSelectedTemplate();
-  var nameEl = document.getElementById('manual-template-name');
   var bodyEl = document.getElementById('manual-template-input');
   var folderEl = document.getElementById('template-folder-select');
 
-  if (!nameEl || !bodyEl || !folderEl) return;
+  if (!bodyEl || !folderEl) return;
 
   if (!selected) {
-    nameEl.value = '';
     bodyEl.value = '';
     folderEl.value = '';
     setDraftTemplatePhraseHandlingIds(getDefaultPhraseHandlingSelectionIds());
@@ -736,7 +843,6 @@ function populateTemplateEditorFromSelection() {
     return;
   }
 
-  nameEl.value = String(selected.name || '');
   bodyEl.value = String(selected.body || '');
   folderEl.value = normalizeTemplateFolderName(selected.folder);
   setDraftTemplatePhraseHandlingIds(getTemplatePhraseHandlingIds(selected));
@@ -745,11 +851,9 @@ function populateTemplateEditorFromSelection() {
 }
 
 function getTemplateEditorState() {
-  var nameEl = document.getElementById('manual-template-name');
   var bodyEl = document.getElementById('manual-template-input');
   var folderEl = document.getElementById('template-folder-select');
   return {
-    name: nameEl ? String(nameEl.value || '').trim() : '',
     body: bodyEl ? String(bodyEl.value || '').trim() : '',
     folder: normalizeTemplateFolderName(folderEl ? folderEl.value : '')
   };
@@ -758,15 +862,10 @@ function getTemplateEditorState() {
 async function handleCreateTemplateFolder() {
   if (!_uid) return;
 
-  var input = document.getElementById('new-template-folder-input');
   var editorSelect = document.getElementById('template-folder-select');
-  if (!input || !editorSelect) return;
 
-  var folderName = normalizeTemplateFolderName(input.value);
-  if (!folderName) {
-    setReportStatus('Enter a folder name first.', true);
-    return;
-  }
+  var folderName = normalizeTemplateFolderName(window.prompt('New folder name:') || '');
+  if (!folderName) return;
 
   var existing = getAllTemplateFolderNames().find(function(name) {
     return name.toLowerCase() === folderName.toLowerCase();
@@ -774,8 +873,7 @@ async function handleCreateTemplateFolder() {
 
   if (existing) {
     renderTemplateFolderOptions();
-    editorSelect.value = existing;
-    input.value = '';
+    if (editorSelect) editorSelect.value = existing;
     setReportStatus('Folder already exists. Using existing folder.', false);
     return;
   }
@@ -786,7 +884,6 @@ async function handleCreateTemplateFolder() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    input.value = '';
     showToast('Folder created.');
     setReportStatus('Folder created.', false);
   } catch (err) {
@@ -819,13 +916,17 @@ async function handleSaveTemplate() {
 
   var selected = getSelectedTemplate();
   var templateId = selected ? String(selected.id || '').trim() : '';
-  var name = state.name || (selected ? String(selected.name || '') : '') || 'Manual Template';
+  var name = (selected ? String(selected.name || '') : '') || 'Manual Template';
 
   var payload = {
     name: name,
     body: state.body,
     folder: state.folder,
-    studyType: getReportStudyType(),
+    studyType: inferStudyTypeFromTemplate({
+      name: name,
+      body: state.body,
+      studyType: selected ? selected.studyType : ''
+    }),
     selectedPhraseHandlingIds: getSelectedPhraseHandlingIds(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     createdAt: selected && selected.createdAt ? selected.createdAt : firebase.firestore.FieldValue.serverTimestamp()
@@ -867,6 +968,80 @@ async function handleDeleteTemplate() {
     setReportStatus('Template deleted.', false);
   } catch (err) {
     setReportStatus((err && err.message) || 'Failed to delete template.', true);
+  }
+}
+
+async function handleMoveTemplateFolder() {
+  if (!_uid) return;
+
+  var selected = getSelectedTemplate();
+  if (!selected || !selected.id) {
+    setReportStatus('Select a template first.', true);
+    return;
+  }
+
+  var folderEl = document.getElementById('template-folder-select');
+  var targetFolder = normalizeTemplateFolderName(folderEl ? folderEl.value : '');
+
+  try {
+    await reportTemplatesRef(_uid).doc(selected.id).set({
+      folder: targetFolder,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    showToast('Template moved.');
+    setReportStatus('Moved to ' + (targetFolder ? '"' + targetFolder + '"' : 'no folder') + '.', false);
+  } catch (err) {
+    setReportStatus((err && err.message) || 'Failed to move template.', true);
+  }
+}
+
+function handleNewTemplate() {
+  var dialog = document.getElementById('create-template-dialog');
+  if (!dialog) return;
+  var nameInput = document.getElementById('create-template-name');
+  var bodyInput = document.getElementById('create-template-body');
+  if (nameInput) nameInput.value = '';
+  if (bodyInput) bodyInput.value = '';
+  dialog.showModal();
+  if (nameInput) nameInput.focus();
+}
+
+async function handleCreateTemplateConfirm() {
+  if (!_uid) return;
+
+  var nameInput = document.getElementById('create-template-name');
+  var bodyInput = document.getElementById('create-template-body');
+  var name = nameInput ? String(nameInput.value || '').trim() : '';
+  var body = bodyInput ? String(bodyInput.value || '').trim() : '';
+
+  if (!name) {
+    if (nameInput) nameInput.focus();
+    setReportStatus('Enter a template name.', true);
+    return;
+  }
+
+  // Default new template to the currently-filtered folder
+  var filterEl = document.getElementById('template-folder-filter-select');
+  var folder = normalizeTemplateFolderName(filterEl ? filterEl.value : '');
+
+  var payload = {
+    name: name,
+    body: body,
+    folder: folder,
+    selectedPhraseHandlingIds: [],
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  };
+
+  try {
+    var ref = await reportTemplatesRef(_uid).add(payload);
+    _pendingTemplateSelection = ref.id;
+    var dialog = document.getElementById('create-template-dialog');
+    if (dialog) dialog.close();
+    showToast('Template created.');
+    setReportStatus('Template created.', false);
+  } catch (err) {
+    setReportStatus((err && err.message) || 'Failed to create template.', true);
   }
 }
 
@@ -1710,9 +1885,6 @@ function handleUseTemplateDirect() {
 function inferStudyTypeFromTemplate(template) {
   if (!template) return '';
 
-  var explicit = String(template.studyType || '').trim();
-  if (explicit) return explicit;
-
   var body = String(template.body || '');
   var examMatch = body.match(/(?:^|\n)\s*(?:EXAM|STUDY|PROCEDURE)\s*:\s*([^\n]+)/i);
   if (examMatch && examMatch[1]) {
@@ -1721,6 +1893,9 @@ function inferStudyTypeFromTemplate(template) {
 
   var name = String(template.name || '').trim();
   if (name) return name;
+
+  var explicit = String(template.studyType || '').trim();
+  if (explicit) return explicit;
   return '';
 }
 
@@ -1729,9 +1904,7 @@ function applyTemplateContextToGenerationFields(template) {
   if (!studyTypeInput) return;
 
   var nextStudyType = inferStudyTypeFromTemplate(template);
-  if (studyTypeInput && nextStudyType) {
-    studyTypeInput.value = nextStudyType;
-  }
+  studyTypeInput.value = nextStudyType || '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

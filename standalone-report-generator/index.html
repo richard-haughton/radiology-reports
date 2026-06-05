@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reports</title>
   <meta name="description" content="Standalone report generator for radiology draft creation." />
-  <link rel="stylesheet" href="css/app.css?v=20260604c" />
+  <link rel="stylesheet" href="css/app.css?v=20260605d" />
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="js/firebase-config.js?v=20260604a"></script>
-  <script src="js/app.js?v=20260604e"></script>
+  <script src="js/app.js?v=20260605g"></script>
 </head>
 <body>
   <div id="hipaa-warning" style="background:#b91c1c;color:#fff;font-weight:bold;text-align:center;padding:12px 16px;font-size:1.05rem;letter-spacing:0.01em;">
-    &#9888; WARNING: This application is NOT HIPAA compliant. Do NOT enter any patient health information (PHI) into this application.
+    &#9888; WARNING: This application is NOT HIPAA compliant. Do NOT include identifiable patient health information (PHI) in this application.
   </div>
   <div id="auth-screen" class="auth-screen">
     <div class="auth-card">
@@ -38,44 +38,40 @@
       </div>
     </header>
 
-    <main class="report-layout">
+    <main class="report-layout" id="report-layout">
+      <div class="sidebar-toggle-wrap">
+        <button id="btn-toggle-sidebar" class="btn btn-sidebar-tab" type="button" title="Collapse sidebar" aria-label="Toggle sidebar">◀</button>
+      </div>
       <aside class="report-sidebar">
         <section class="report-card">
           <h2>Templates</h2>
-          <label class="form-label" for="template-sort-select">Sort templates</label>
-          <select id="template-sort-select" class="form-input">
-            <option value="folder-name">Folder, then name</option>
-            <option value="name-asc">Name (A to Z)</option>
-            <option value="name-desc">Name (Z to A)</option>
-            <option value="newest">Recently updated</option>
-            <option value="oldest">Oldest first</option>
-          </select>
 
-          <label class="form-label" for="template-folder-filter-select">Filter by folder</label>
-          <select id="template-folder-filter-select" class="form-input">
-            <option value="">All folders</option>
-          </select>
-
-          <label class="form-label" for="report-template-select">Template</label>
-          <select id="report-template-select" class="form-input">
-            <option value="">No template</option>
-          </select>
-
-          <label class="form-label" for="template-folder-select">Template folder</label>
-          <select id="template-folder-select" class="form-input">
-            <option value="">No folder</option>
-          </select>
-
-          <div class="row-actions row-actions-inline">
-            <input id="new-template-folder-input" class="form-input" type="text" placeholder="New folder name" />
-            <button id="btn-create-template-folder" class="btn btn-ghost btn-sm" type="button">Create Folder</button>
+          <label class="form-label" for="template-folder-filter-select">Folder</label>
+          <div class="row-actions row-actions-inline" style="margin-top:0">
+            <select id="template-folder-filter-select" class="form-input">
+              <option value="">All folders</option>
+            </select>
+            <button id="btn-create-template-folder" class="btn btn-ghost btn-sm" type="button">+ Folder</button>
           </div>
 
-          <label class="form-label" for="manual-template-name">Template name</label>
-          <input id="manual-template-name" class="form-input" type="text" placeholder="Template name" />
+          <label class="form-label" for="report-template-select">Template</label>
+          <div class="row-actions row-actions-inline" style="margin-top:0">
+            <select id="report-template-select" class="form-input">
+              <option value="">New template</option>
+            </select>
+            <button id="btn-new-template" class="btn btn-ghost btn-sm" type="button">+ Template</button>
+          </div>
 
           <label class="form-label" for="manual-template-input">Template body</label>
-          <textarea id="manual-template-input" class="form-input" rows="6" placeholder="Paste or type template text..."></textarea>
+          <textarea id="manual-template-input" class="form-input" rows="8" placeholder="Select a template above, or create one with + Template."></textarea>
+
+          <label class="form-label" for="template-folder-select">Move to folder</label>
+          <div class="row-actions row-actions-inline" style="margin-top:0">
+            <select id="template-folder-select" class="form-input">
+              <option value="">No folder</option>
+            </select>
+            <button id="btn-move-template-folder" class="btn btn-ghost btn-sm" type="button">Move</button>
+          </div>
 
           <div class="row-actions">
             <button id="btn-save-manual-template" class="btn btn-ghost btn-sm" type="button">Save / Update</button>
@@ -154,6 +150,21 @@
         <section class="report-card">
           <h2>Generation</h2>
 
+          <div class="row-2">
+            <div>
+              <label class="form-label" for="gen-folder-select">Template folder</label>
+              <select id="gen-folder-select" class="form-input">
+                <option value="">All folders</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label" for="gen-template-select">Template</label>
+              <select id="gen-template-select" class="form-input">
+                <option value="">No template</option>
+              </select>
+            </div>
+          </div>
+
           <label class="form-label" for="report-output-mode">Generation mode</label>
           <select id="report-output-mode" class="form-input">
             <option value="full" selected>Full Report - Improve Language</option>
@@ -173,8 +184,8 @@
               <input id="report-study-type-input" class="form-input" type="text" placeholder="Example: CT Abdomen/Pelvis with contrast" />
             </label>
 
-            <label class="form-label" for="report-indication-input">Indication
-              <input id="report-indication-input" class="form-input" type="text" placeholder="Example: Abdominal pain" />
+            <label class="form-label" for="report-indication-input">Indication (optional)
+              <input id="report-indication-input" class="form-input" type="text" placeholder="Optional: Example: Abdominal pain" />
             </label>
           </div>
 
@@ -223,5 +234,19 @@
   </div>
 
   <div id="toast" class="toast" style="display:none"></div>
+
+  <dialog id="create-template-dialog" class="create-template-dialog">
+    <div class="create-template-dialog-inner">
+      <h3 class="create-template-dialog-title">New Template</h3>
+      <label class="form-label" for="create-template-name">Template name</label>
+      <input id="create-template-name" class="form-input" type="text" placeholder="e.g. CT Chest PA/Lat" autocomplete="off" />
+      <label class="form-label" for="create-template-body">Template body</label>
+      <textarea id="create-template-body" class="form-input" rows="10" placeholder="Paste or type template text..."></textarea>
+      <div class="create-template-dialog-actions">
+        <button id="btn-create-template-confirm" class="btn btn-accent btn-sm" type="button">Create</button>
+        <button id="btn-create-template-cancel" class="btn btn-ghost btn-sm" type="button">Cancel</button>
+      </div>
+    </div>
+  </dialog>
 </body>
 </html>
