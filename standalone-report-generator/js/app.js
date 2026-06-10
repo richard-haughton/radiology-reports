@@ -2159,8 +2159,9 @@ async function generateWithBrowserAiProvider(payload) {
   var prompt = payload && payload.promptOverride ? payload.promptOverride : buildReportPrompt(payload || {});
   var model = String(payload.model || providerConfig.defaultModel || '').trim();
   var idToken = await appAuth.currentUser.getIdToken();
+  var endpoint = resolveAiProxyEndpoint();
 
-  var response = await fetch('/api/generate', {
+  var response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2190,6 +2191,27 @@ async function generateWithBrowserAiProvider(payload) {
   }
 
   return { data: { text: content } };
+}
+
+function resolveAiProxyEndpoint() {
+  if (typeof AI_PROXY_URL === 'string' && String(AI_PROXY_URL || '').trim()) {
+    return String(AI_PROXY_URL).trim();
+  }
+
+  var projectId = '';
+
+  try {
+    if (typeof firebase !== 'undefined' && firebase.app) {
+      var app = firebase.app();
+      projectId = String((app && app.options && app.options.projectId) || '').trim();
+    }
+  } catch (err) {
+    projectId = '';
+  }
+
+  if (!projectId) return '/api/generate';
+
+  return 'https://us-central1-' + projectId + '.cloudfunctions.net/aiProxy';
 }
 
 function getSelectedAiProvider() {

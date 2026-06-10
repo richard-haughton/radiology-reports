@@ -11,3 +11,7 @@ firebase.initializeApp(firebaseConfig);
 
 var appAuth = firebase.auth();
 var appDb = firebase.firestore();
+
+// Deployed Cloud Functions v2 HTTP endpoint for AI proxy calls.
+// This is used when app hosting does not support Firebase rewrites (e.g., GitHub Pages/local).
+var AI_PROXY_URL = "https://aiproxy-yulb4i2xca-uc.a.run.app";

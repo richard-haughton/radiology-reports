@@ -5,8 +5,6 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 
 const openAiApiKey = defineSecret('OPENAI_API_KEY');
-const anthropicApiKey = defineSecret('ANTHROPIC_API_KEY');
-const geminiApiKey = defineSecret('GEMINI_API_KEY');
 
 function badRequest(res, message) {
   res.status(400).json({ error: { message } });
@@ -131,7 +129,7 @@ exports.aiProxy = onRequest({
   region: 'us-central1',
   timeoutSeconds: 60,
   cors: true,
-  secrets: [openAiApiKey, anthropicApiKey, geminiApiKey]
+  secrets: [openAiApiKey]
 }, async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -168,17 +166,9 @@ exports.aiProxy = onRequest({
     let content = '';
 
     if (provider === 'anthropic') {
-      const apiKey = String(anthropicApiKey.value() || '').trim();
-      if (!apiKey) {
-        throw new Error('Anthropic API key is not configured on Firebase Functions.');
-      }
-      content = await callAnthropic(model, prompt, apiKey);
+      throw new Error('Anthropic is not configured yet. Add ANTHROPIC_API_KEY and bind it in functions before using this provider.');
     } else if (provider === 'gemini') {
-      const apiKey = String(geminiApiKey.value() || '').trim();
-      if (!apiKey) {
-        throw new Error('Gemini API key is not configured on Firebase Functions.');
-      }
-      content = await callGemini(model, prompt, apiKey);
+      throw new Error('Gemini is not configured yet. Add GEMINI_API_KEY and bind it in functions before using this provider.');
     } else {
       const apiKey = String(openAiApiKey.value() || '').trim();
       if (!apiKey) {
