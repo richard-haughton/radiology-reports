@@ -8,6 +8,7 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
 - Report template CRUD (users/{uid}/reportTemplates)
 - Phrase handling CRUD (users/{uid}/phraseHandlings)
 - AI report generation with user-provided OpenAI, Claude, or Gemini API keys (browser mode)
+- AI report generation via Firebase Functions proxy (server-side API keys)
 - Mobile-friendly two-column layout that collapses to one column
 - Firebase config files for standalone project setup (`firebase.json`, `.firebaserc`)
 - Firestore rules file included at `firestore.rules`
@@ -19,7 +20,39 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
    - Authentication enabled for Google
    - Firestore enabled
 3. Add your GitHub Pages domain to Firebase authorized domains.
-4. Use your own API key for the selected AI provider in the app's Generation section.
+4. Configure server-side API keys in Firebase Functions.
+
+## Configure Firebase Functions AI proxy
+
+This app now routes AI calls through Firebase at `/api/generate`.
+
+1. Install function dependencies:
+
+```bash
+cd functions
+npm install
+```
+
+2. Set secrets directly in Firebase Secret Manager (no `.env` file required):
+
+```bash
+firebase functions:secrets:set OPENAI_API_KEY --project reports-eadf8
+firebase functions:secrets:set ANTHROPIC_API_KEY --project reports-eadf8
+firebase functions:secrets:set GEMINI_API_KEY --project reports-eadf8
+```
+
+3. (Optional) confirm secrets are present:
+
+```bash
+firebase functions:secrets:list --project reports-eadf8
+```
+
+4. Deploy hosting + functions:
+
+```bash
+cd ..
+firebase deploy --only hosting,functions --project YOUR_PROJECT_ID
+```
 
 ## Firestore rules expectation
 
@@ -89,8 +122,8 @@ jobs:
 
 ## Notes
 
-- API keys entered in the app are used directly from the browser.
-- If "Remember on this device" is enabled, the selected provider's key is saved in browser localStorage.
+- API provider keys are stored in Firebase Secret Manager and bound to the `aiProxy` function.
+- The browser sends only provider/model/prompt and a Firebase ID token to `/api/generate`.
 - Templates can store their active phrase handling selection through `selectedPhraseHandlingIds` so each template can remember which phrase rules should be applied during generation.
 - Phrase handling drafts can be generated from an example phrase or rule and then saved for reuse.
 - Update model options or provider list in `js/app.js` as needed.

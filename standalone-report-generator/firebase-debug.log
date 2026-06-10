@@ -1,0 +1,129 @@
+[debug] [2026-06-10T15:04:21.825Z] ----------------------------------------------------------------------
+[debug] [2026-06-10T15:04:21.834Z] Command:       /opt/homebrew/Cellar/node/26.0.0/bin/node /usr/local/bin/firebase deploy --only functions,hosting --project reports-eadf8
+[debug] [2026-06-10T15:04:21.834Z] CLI Version:   15.19.0
+[debug] [2026-06-10T15:04:21.834Z] Platform:      darwin
+[debug] [2026-06-10T15:04:21.834Z] Node Version:  v26.0.0
+[debug] [2026-06-10T15:04:21.834Z] Time:          Wed Jun 10 2026 08:04:21 GMT-0700 (Mountain Standard Time)
+[debug] [2026-06-10T15:04:21.835Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-06-10T15:04:22.905Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-10T15:04:22.905Z] > authorizing via signed-in user (thatallbe5bucks@gmail.com)
+[debug] [2026-06-10T15:04:22.905Z] [iam] checking project reports-eadf8 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2026-06-10T15:04:22.906Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:22.906Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:22.907Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions [none]
+[debug] [2026-06-10T15:04:22.907Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions  x-goog-user-project=reports-eadf8
+[debug] [2026-06-10T15:04:22.907Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-06-10T15:04:23.420Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions 200
+[debug] [2026-06-10T15:04:23.420Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-06-10T15:04:23.421Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:23.421Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:23.421Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/reports-eadf8/serviceAccounts/reports-eadf8@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2026-06-10T15:04:23.421Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/reports-eadf8/serviceAccounts/reports-eadf8@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-06-10T15:04:23.944Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/reports-eadf8/serviceAccounts/reports-eadf8@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2026-06-10T15:04:23.944Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/reports-eadf8/serviceAccounts/reports-eadf8@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2026-06-10T15:04:23.946Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:23.946Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:23.946Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/reports-eadf8 [none]
+[debug] [2026-06-10T15:04:24.419Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/reports-eadf8 200
+[debug] [2026-06-10T15:04:24.419Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/reports-eadf8 {"projectId":"reports-eadf8","projectNumber":"78116950355","displayName":"Reports","name":"projects/reports-eadf8","resources":{"hostingSite":"reports-eadf8"},"state":"ACTIVE","etag":"1_97f7594d-0e9a-4fa2-980c-9d6d2e97a1d6"}
+[info] 
+[info] === Deploying to 'reports-eadf8'...
+[info] 
+[info] i  deploying functions, hosting 
+[debug] [2026-06-10T15:04:24.424Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:24.424Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:24.424Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8 [none]
+[debug] [2026-06-10T15:04:24.649Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8 200
+[debug] [2026-06-10T15:04:24.649Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8 {"projectNumber":"78116950355","projectId":"reports-eadf8","lifecycleState":"ACTIVE","name":"Reports","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2026-06-02T19:26:51.589Z"}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2026-06-10T15:04:24.650Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:24.650Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:24.650Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/reports-eadf8/adminSdkConfig [none]
+[debug] [2026-06-10T15:04:25.041Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/reports-eadf8/adminSdkConfig 200
+[debug] [2026-06-10T15:04:25.041Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/reports-eadf8/adminSdkConfig {"projectId":"reports-eadf8","storageBucket":"reports-eadf8.firebasestorage.app"}
+[debug] [2026-06-10T15:04:25.041Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:25.041Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:25.041Z] >>> [apiv2][query] GET https://runtimeconfig.googleapis.com/v1beta1/projects/reports-eadf8/configs [none]
+[debug] [2026-06-10T15:04:25.515Z] <<< [apiv2][status] GET https://runtimeconfig.googleapis.com/v1beta1/projects/reports-eadf8/configs 200
+[debug] [2026-06-10T15:04:25.515Z] <<< [apiv2][body] GET https://runtimeconfig.googleapis.com/v1beta1/projects/reports-eadf8/configs {}
+[debug] [2026-06-10T15:04:25.517Z] Validating nodejs source
+[warn] ⚠  functions: Runtime Node.js 20 was deprecated on 2026-04-30 and will be decommissioned on 2026-10-30, after which you will not be able to deploy without upgrading. Consider upgrading now to avoid disruption. See https://cloud.google.com/functions/docs/runtime-support for full details on the lifecycle policy 
+[warn] ⚠  functions: package.json indicates an outdated version of firebase-functions. Please upgrade using npm install --save firebase-functions@latest in your functions directory. 
+[warn] ⚠  functions: Please note that there will be breaking changes when you upgrade. 
+[debug] [2026-06-10T15:04:26.559Z] > [functions] package.json contents: {
+  "name": "standalone-report-generator-functions",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.5.0",
+    "firebase-functions": "^5.0.1"
+  }
+}
+[debug] [2026-06-10T15:04:26.559Z] Building nodejs source
+[info] i  functions: Loading and analyzing source code for codebase default to determine what to deploy 
+[debug] [2026-06-10T15:04:26.560Z] Could not find functions.yaml. Must use http discovery
+[debug] [2026-06-10T15:04:26.569Z] Found firebase-functions binary at '/Users/dillonhaughton/Documents/Reports/standalone-report-generator/functions/node_modules/.bin/firebase-functions'
+[info] Serving at port 8622
+
+[debug] [2026-06-10T15:04:26.935Z] Got response from /__/functions.yaml {"endpoints":{"aiProxy":{"availableMemoryMb":null,"timeoutSeconds":60,"minInstances":null,"maxInstances":null,"ingressSettings":null,"concurrency":null,"serviceAccountEmail":null,"vpc":null,"platform":"gcfv2","region":["us-central1"],"secretEnvironmentVariables":[{"key":"OPENAI_API_KEY"},{"key":"ANTHROPIC_API_KEY"},{"key":"GEMINI_API_KEY"}],"labels":{},"httpsTrigger":{},"entryPoint":"aiProxy"}},"specVersion":"v1alpha1","requiredAPIs":[],"extensions":{},"params":[{"type":"secret","name":"OPENAI_API_KEY"},{"type":"secret","name":"ANTHROPIC_API_KEY"},{"type":"secret","name":"GEMINI_API_KEY"}]}
+[debug] [2026-06-10T15:04:30.966Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:30.967Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:30.967Z] >>> [apiv2][query] GET https://cloudfunctions.googleapis.com/v1/projects/reports-eadf8/locations/-/functions [none]
+[debug] [2026-06-10T15:04:31.842Z] <<< [apiv2][status] GET https://cloudfunctions.googleapis.com/v1/projects/reports-eadf8/locations/-/functions 200
+[debug] [2026-06-10T15:04:31.842Z] <<< [apiv2][body] GET https://cloudfunctions.googleapis.com/v1/projects/reports-eadf8/locations/-/functions {}
+[debug] [2026-06-10T15:04:31.844Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:31.844Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:31.846Z] >>> [apiv2][query] GET https://cloudfunctions.googleapis.com/v2/projects/reports-eadf8/locations/-/functions filter=environment%3D%22GEN_2%22
+[debug] [2026-06-10T15:04:32.647Z] <<< [apiv2][status] GET https://cloudfunctions.googleapis.com/v2/projects/reports-eadf8/locations/-/functions 200
+[debug] [2026-06-10T15:04:32.647Z] <<< [apiv2][body] GET https://cloudfunctions.googleapis.com/v2/projects/reports-eadf8/locations/-/functions {}
+[info] i  extensions: ensuring required API firebaseextensions.googleapis.com is enabled... 
+[debug] [2026-06-10T15:04:32.651Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-10T15:04:32.652Z] > authorizing via signed-in user (thatallbe5bucks@gmail.com)
+[debug] [2026-06-10T15:04:32.652Z] [iam] checking project reports-eadf8 for permissions ["firebase.projects.get","firebaseextensions.instances.list"]
+[debug] [2026-06-10T15:04:32.652Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:32.652Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:32.653Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions [none]
+[debug] [2026-06-10T15:04:32.653Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions  x-goog-user-project=reports-eadf8
+[debug] [2026-06-10T15:04:32.653Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions {"permissions":["firebase.projects.get","firebaseextensions.instances.list"]}
+[debug] [2026-06-10T15:04:33.058Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions 200
+[debug] [2026-06-10T15:04:33.058Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/reports-eadf8:testIamPermissions {"permissions":["firebase.projects.get","firebaseextensions.instances.list"]}
+[debug] [2026-06-10T15:04:33.060Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:33.060Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:33.060Z] >>> [apiv2][query] GET https://firebaseextensions.googleapis.com/v1beta/projects/reports-eadf8/instances pageSize=100&pageToken=
+[debug] [2026-06-10T15:04:33.834Z] <<< [apiv2][status] GET https://firebaseextensions.googleapis.com/v1beta/projects/reports-eadf8/instances 200
+[debug] [2026-06-10T15:04:33.834Z] <<< [apiv2][body] GET https://firebaseextensions.googleapis.com/v1beta/projects/reports-eadf8/instances {}
+[debug] [2026-06-10T15:04:33.838Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:33.838Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:33.838Z] >>> [apiv2][query] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/OPENAI_API_KEY [none]
+[debug] [2026-06-10T15:04:34.428Z] <<< [apiv2][status] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/OPENAI_API_KEY 200
+[debug] [2026-06-10T15:04:34.428Z] <<< [apiv2][body] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/OPENAI_API_KEY {"name":"projects/78116950355/secrets/OPENAI_API_KEY","replication":{"automatic":{}},"createTime":"2026-06-10T14:57:45.779049Z","labels":{"firebase-managed":"functions"},"etag":"\"1653e77766abeb\""}
+[debug] [2026-06-10T15:04:34.429Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:34.429Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:34.429Z] >>> [apiv2][query] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/OPENAI_API_KEY/versions/latest [none]
+[debug] [2026-06-10T15:04:34.586Z] <<< [apiv2][status] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/OPENAI_API_KEY/versions/latest 200
+[debug] [2026-06-10T15:04:34.586Z] <<< [apiv2][body] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/OPENAI_API_KEY/versions/latest {"name":"projects/78116950355/secrets/OPENAI_API_KEY/versions/1","createTime":"2026-06-10T14:57:55.867006Z","state":"ENABLED","replicationStatus":{"automatic":{}},"etag":"\"1653e777fcbd7e\""}
+[debug] [2026-06-10T15:04:34.587Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:34.587Z] Checked if tokens are valid: true, expires at: 1781107050662
+[debug] [2026-06-10T15:04:34.588Z] >>> [apiv2][query] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/ANTHROPIC_API_KEY [none]
+[debug] [2026-06-10T15:04:34.882Z] <<< [apiv2][status] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/ANTHROPIC_API_KEY 404
+[debug] [2026-06-10T15:04:34.882Z] <<< [apiv2][body] GET https://secretmanager.googleapis.com/v1/projects/reports-eadf8/secrets/ANTHROPIC_API_KEY {"error":{"code":404,"message":"Secret [projects/78116950355/secrets/ANTHROPIC_API_KEY] not found.","status":"NOT_FOUND"}}
+[debug] [2026-06-10T15:04:48.077Z] ExitPromptError: User force closed the prompt with SIGINT
+    at Interface.sigint (/usr/local/lib/node_modules/firebase-tools/node_modules/@inquirer/core/dist/commonjs/lib/create-prompt.js:101:37)
+    at Interface.emit (node:events:509:20)
+    at [_ttyWrite] [as _ttyWrite] (node:internal/readline/interface:1327:18)
+    at ReadStream.onkeypress (node:internal/readline/interface:284:20)
+    at ReadStream.emit (node:events:521:24)
+    at emitKeys (node:internal/readline/utils:371:14)
+    at emitKeys.next (<anonymous>)
+    at ReadStream.onData (node:internal/readline/emitKeypressEvents:64:36)
+    at ReadStream.emit (node:events:509:20)
+    at addChunk (node:internal/streams/readable:564:12)
+[error] 
+[error] Error: An unexpected error has occurred.

@@ -305,32 +305,32 @@ function initOpenAiKeyControls() {
   var keyInput = document.getElementById('ai-api-key-input');
   var rememberCheckbox = document.getElementById('remember-ai-api-key');
   var keyLabel = document.getElementById('ai-api-key-label');
+  var clearSavedKeyBtn = document.getElementById('btn-clear-ai-api-key');
   var modelSelect = document.getElementById('ai-model-input');
   if (!providerSelect || !keyInput || !rememberCheckbox || !keyLabel || !modelSelect) return;
 
   function refreshForProvider(provider) {
     renderAiModelOptions(provider, modelSelect);
-    applyAiProviderUi(provider, keyInput, rememberCheckbox, keyLabel);
-    loadSavedAiKey(provider, keyInput, rememberCheckbox);
+    var providerConfig = getAiProviderConfig(provider);
+    keyInput.value = '';
+    keyInput.disabled = true;
+    keyInput.placeholder = providerConfig.label + ' key is configured in Firebase Functions.';
+    keyLabel.textContent = 'API key source';
+
+    if (rememberCheckbox) {
+      rememberCheckbox.checked = false;
+      rememberCheckbox.disabled = true;
+      var rememberLabel = rememberCheckbox.closest('label');
+      if (rememberLabel) rememberLabel.style.display = 'none';
+    }
+
+    if (clearSavedKeyBtn) {
+      clearSavedKeyBtn.style.display = 'none';
+    }
   }
 
   providerSelect.addEventListener('change', function() {
     refreshForProvider(getSelectedAiProvider());
-  });
-
-  keyInput.addEventListener('input', function() {
-    var provider = getSelectedAiProvider();
-    if (!rememberCheckbox.checked) return;
-    persistAiKey(provider, String(keyInput.value || '').trim());
-  });
-
-  rememberCheckbox.addEventListener('change', function() {
-    var provider = getSelectedAiProvider();
-    if (rememberCheckbox.checked) {
-      persistAiKey(provider, String(keyInput.value || '').trim());
-      return;
-    }
-    clearPersistedAiKey(provider);
   });
 
   refreshForProvider(getSelectedAiProvider());
@@ -465,14 +465,7 @@ function saveAdaptiveGuidanceForMode(outputMode, guidance, meta) {
 }
 
 function handleClearSavedOpenAiKey() {
-  var provider = getSelectedAiProvider();
-  var providerConfig = getAiProviderConfig(provider);
-  var keyInput = document.getElementById('ai-api-key-input');
-  var rememberCheckbox = document.getElementById('remember-ai-api-key');
-  if (keyInput) keyInput.value = '';
-  if (rememberCheckbox) rememberCheckbox.checked = false;
-  clearPersistedAiKey(provider);
-  setReportStatus('Saved ' + providerConfig.label + ' key cleared from this browser.', false);
+  setReportStatus('API keys are now managed in Firebase Functions.', false);
 }
 
 function teardownUserSubscriptions() {
@@ -1504,6 +1497,9 @@ function buildChatRefinementPrompt(payload) {
     system += '\nOutput shape must be exactly: {"impression":"..."}.';
     system += '\nReturn only an updated impression based on the initial draft and follow-up clarifications.';
   } else if (outputMode === 'improve-finding') {
+    system += '\nTreat the original finding as rough intern-level wording and rewrite it as an expert subspecialty radiologist would present it.';
+    system += '\nDo a substantive rewrite that upgrades terminology, structure, and precision while preserving all clinically relevant meaning, anatomy, laterality, and severity.';
+    system += '\nAvoid timid or generic phrasing; use polished radiology language that sounds authoritative, efficient, and clinically appropriate.';
     system += '\nOutput shape must be exactly: {"improvedFinding":"..."}.';
     system += '\nReturn only an updated improved finding based on the initial draft and follow-up clarifications.';
   } else {
@@ -1936,7 +1932,9 @@ function buildReportPrompt(payload) {
     instructions.push('Rewrite the provided impression text for clarity and professionalism without changing meaning.');
     instructions.push('Return a concise radiology-expert numbered list (1., 2., 3.) where each item states finding summary, diagnosis or focused differential, and recommendation when indicated.');
   } else if (outputMode === 'improve-finding') {
-    instructions.push('Rewrite the finding text for clarity and professionalism without changing meaning.');
+    instructions.push('Rewrite the finding text as if a medical intern wrote it, then upgrade it to the voice of an expert subspecialty radiologist.');
+    instructions.push('Make a substantive rewrite, not a light polish: correct terminology, tighten structure, clarify anatomy and laterality, and replace vague or awkward wording with standard radiology phrasing while preserving the original clinical meaning.');
+    instructions.push('Keep all clinically relevant facts, but express them in polished radiology language with the precision and confidence expected from a subspecialist report.');
   } else if (hasTemplate) {
     instructions.push('Use the template field labels (lines ending in a colon) as section keys and preserve their order.');
     instructions.push('Sort each finding into the best matching template field.');
@@ -2154,70 +2152,29 @@ function extractJsonObject(text) {
 async function generateWithBrowserAiProvider(payload) {
   var provider = String(payload.provider || 'openai').trim() || 'openai';
   var providerConfig = getAiProviderConfig(provider);
-  var apiKey = getAiApiKey(provider);
-  if (!apiKey) {
-    throw new Error('Enter a ' + providerConfig.label + ' API key to generate a report.');
+  if (!_uid || !appAuth.currentUser) {
+    throw new Error('Sign in required before generating a report.');
   }
 
   var prompt = payload && payload.promptOverride ? payload.promptOverride : buildReportPrompt(payload || {});
   var model = String(payload.model || providerConfig.defaultModel || '').trim();
-  var response;
+  var idToken = await appAuth.currentUser.getIdToken();
 
-  if (provider === 'anthropic') {
-    response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: model,
-        max_tokens: 2048,
-        system: prompt.system,
-        messages: [
-          { role: 'user', content: prompt.user }
-        ]
-      })
-    });
-  } else if (provider === 'gemini') {
-    response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: prompt.system }]
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: prompt.user }]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048
-        }
-      })
-    });
-  } else {
-    response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + apiKey
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: prompt.system },
-          { role: 'user', content: prompt.user }
-        ]
-      })
-    });
-  }
+  var response = await fetch('/api/generate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + idToken
+    },
+    body: JSON.stringify({
+      provider: provider,
+      model: model,
+      prompt: {
+        system: String(prompt.system || ''),
+        user: String(prompt.user || '')
+      }
+    })
+  });
 
   var data = await response.json().catch(function() { return {}; });
   if (!response.ok) {
@@ -2225,20 +2182,7 @@ async function generateWithBrowserAiProvider(payload) {
     throw new Error(msg);
   }
 
-  var content = '';
-  if (provider === 'anthropic') {
-    content = Array.isArray(data && data.content)
-      ? data.content.map(function(part) { return String(part && part.text || ''); }).join('')
-      : '';
-  } else if (provider === 'gemini') {
-    content = data && data.candidates && data.candidates[0] && data.candidates[0].content && Array.isArray(data.candidates[0].content.parts)
-      ? data.candidates[0].content.parts.map(function(part) { return String(part && part.text || ''); }).join('')
-      : '';
-  } else {
-    content = data && data.choices && data.choices[0] && data.choices[0].message
-      ? String(data.choices[0].message.content || '')
-      : '';
-  }
+  var content = String(data && data.content || '');
 
   var parsed = extractJsonObject(content);
   if (parsed && typeof parsed === 'object') {
