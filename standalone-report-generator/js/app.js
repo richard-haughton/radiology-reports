@@ -1187,7 +1187,7 @@ async function handleGenerateReport() {
     });
 
     var data = response && response.data ? response.data : {};
-    outputEl.value = formatReportOutputFromData(data, outputMode);
+    outputEl.value = formatReportOutputFromData(data, outputMode, templateText);
 
     if (chatModeEnabled) {
       var initialQuestions = normalizeFollowUpQuestions(data && data.followUpQuestions);
@@ -1213,7 +1213,7 @@ async function handleGenerateReport() {
             })
           });
           var refinementData = refinement && refinement.data ? refinement.data : {};
-          outputEl.value = formatReportOutputFromData(refinementData, outputMode);
+          outputEl.value = formatReportOutputFromData(refinementData, outputMode, templateText);
           setReportStatus('CHAT mode: draft refined with follow-up answers.', false);
           showToast('CHAT refinement complete.');
           return;
@@ -1361,7 +1361,7 @@ function dedupeSectionKeys(keys) {
   return result;
 }
 
-function formatReportOutputFromData(data, outputMode) {
+function formatReportOutputFromData(data, outputMode, templateText) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
 
@@ -1384,9 +1384,83 @@ function formatReportOutputFromData(data, outputMode) {
     return String(payload.text || '').trim();
   }
 
+  var templateFormatted = formatSectionsUsingTemplateLayout(sections, templateText);
+  if (templateFormatted) return templateFormatted;
+
   return ordered.map(function(key) {
-    return String(key).toUpperCase() + ':\n' + normalizeSectionNarrative(key, sections[key]);
+    return String(key) + ':\n' + normalizeSectionNarrative(key, sections[key]);
   }).join('\n\n');
+}
+
+function formatSectionsUsingTemplateLayout(sections, templateText) {
+  var templateStyles = extractTemplateSectionStyles(templateText);
+  if (!templateStyles.length) return '';
+
+  var orderedKeys = dedupeSectionKeys(Object.keys(sections || {}));
+  var canonicalToActual = {};
+  orderedKeys.forEach(function(key) {
+    var canonical = String(key || '').trim().toLowerCase();
+    if (!canonical || canonicalToActual[canonical]) return;
+    canonicalToActual[canonical] = key;
+  });
+
+  var rendered = [];
+  var used = {};
+
+  templateStyles.forEach(function(style) {
+    var actualKey = canonicalToActual[style.canonicalKey];
+    if (!actualKey || used[actualKey]) return;
+    used[actualKey] = true;
+    rendered.push(renderSectionWithStyle(style, normalizeSectionNarrative(style.label, sections[actualKey])));
+  });
+
+  orderedKeys.forEach(function(key) {
+    if (used[key]) return;
+    rendered.push(String(key) + ':\n' + normalizeSectionNarrative(key, sections[key]));
+  });
+
+  return rendered.filter(Boolean).join('\n\n').trim();
+}
+
+function extractTemplateSectionStyles(templateText) {
+  var lines = String(templateText || '').split(/\r?\n/);
+  var seen = {};
+  var styles = [];
+
+  lines.forEach(function(line) {
+    var match = String(line || '').match(/^(\s*)([A-Za-z][A-Za-z0-9\s\/()&+\-]{0,60})(\s*:\s*)(.*)$/);
+    if (!match || !match[2]) return;
+
+    var label = String(match[2] || '').trim();
+    var canonical = label.toLowerCase();
+    if (!canonical || seen[canonical]) return;
+    seen[canonical] = true;
+
+    styles.push({
+      canonicalKey: canonical,
+      indent: String(match[1] || ''),
+      label: label,
+      separator: String(match[3] || ':'),
+      inline: String(match[4] || '').trim().length > 0
+    });
+  });
+
+  return styles;
+}
+
+function renderSectionWithStyle(style, narrative) {
+  var text = String(narrative || '').trim();
+  var header = String(style.indent || '') + String(style.label || '') + String(style.separator || ':');
+  if (!text) return header;
+
+  if (style.inline) {
+    var parts = text.split(/\r?\n/);
+    var first = String(parts.shift() || '').trim();
+    if (!parts.length) return header + first;
+    return header + first + '\n' + parts.join('\n');
+  }
+
+  return header + '\n' + text;
 }
 
 function normalizeSectionNarrative(sectionName, sectionText) {
