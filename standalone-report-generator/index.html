@@ -10,7 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="js/firebase-config.js?v=20260610b"></script>
-  <script src="js/app.js?v=20260610c"></script>
+  <script src="js/app.js?v=20260619a"></script>
 </head>
 <body>
   <div id="hipaa-warning" style="background:#b91c1c;color:#fff;font-weight:bold;text-align:center;padding:12px 16px;font-size:1.05rem;letter-spacing:0.01em;">
@@ -177,6 +177,11 @@
           <label class="form-label form-check-label" for="report-chat-mode-toggle">
             <input id="report-chat-mode-toggle" type="checkbox" />
             Enable CHAT mode (AI follow-up questions)
+          </label>
+
+          <label class="form-label form-check-label" for="report-findings-impression-only-toggle">
+            <input id="report-findings-impression-only-toggle" type="checkbox" checked />
+            Include Findings and Impression only
           </label>
 
           <div class="row-2">

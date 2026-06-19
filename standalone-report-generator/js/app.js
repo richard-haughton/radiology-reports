@@ -1108,6 +1108,11 @@ function getReportChatModeEnabled() {
   return !!(checkbox && checkbox.checked);
 }
 
+function getFindingsImpressionOnlyEnabled() {
+  var checkbox = document.getElementById('report-findings-impression-only-toggle');
+  return !!(checkbox && checkbox.checked);
+}
+
 function getReportStudyType() {
   var input = document.getElementById('report-study-type-input');
   return input ? String(input.value || '').trim() : '';
@@ -1361,6 +1366,49 @@ function dedupeSectionKeys(keys) {
   return result;
 }
 
+function parseReportSectionsFromText(text) {
+  var lines = String(text || '').split(/\r?\n/);
+  var sections = {};
+  var currentKey = '';
+
+  lines.forEach(function(line) {
+    var match = String(line || '').match(/^\s*([A-Za-z][A-Za-z0-9\s\/()&+\-]{0,60})\s*:\s*(.*)$/);
+    if (match && match[1]) {
+      currentKey = String(match[1] || '').trim();
+      sections[currentKey] = String(match[2] || '').trim();
+      return;
+    }
+
+    if (!currentKey) return;
+    if (String(sections[currentKey] || '').trim()) {
+      sections[currentKey] += '\n' + String(line || '').trim();
+    } else {
+      sections[currentKey] = String(line || '').trim();
+    }
+  });
+
+  return sections;
+}
+
+function filterReportSections(sections, findingsImpressionOnly) {
+  var input = sections && typeof sections === 'object' ? sections : {};
+  var orderedKeys = dedupeSectionKeys(Object.keys(input));
+  var result = {};
+
+  orderedKeys.forEach(function(key) {
+    var canonical = String(key || '').trim().toLowerCase();
+    var value = input[key];
+
+    if (!canonical) return;
+    if (canonical === 'other' && !String(value || '').trim()) return;
+    if (findingsImpressionOnly && canonical !== 'findings' && canonical !== 'impression') return;
+
+    result[key] = value;
+  });
+
+  return result;
+}
+
 function formatReportOutputFromData(data, outputMode, templateText) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
@@ -1379,6 +1427,7 @@ function formatReportOutputFromData(data, outputMode, templateText) {
   }
 
   var sections = payload && payload.sections && typeof payload.sections === 'object' ? payload.sections : {};
+  sections = filterReportSections(sections, getFindingsImpressionOnlyEnabled());
   var ordered = dedupeSectionKeys(Object.keys(sections || {}));
   if (!ordered.length) {
     return String(payload.text || '').trim();
@@ -1947,19 +1996,22 @@ function handleUseTemplateDirect() {
     return;
   }
 
-  outputEl.value = body;
+  var parsedSections = parseReportSectionsFromText(body);
+  var parsedKeys = dedupeSectionKeys(Object.keys(parsedSections));
+  if (parsedKeys.length) {
+    var filteredSections = filterReportSections(parsedSections, getFindingsImpressionOnlyEnabled());
+    var formatted = formatSectionsUsingTemplateLayout(filteredSections, body);
+    outputEl.value = formatted || body;
+  } else {
+    outputEl.value = body;
+  }
+
   setReportStatus('Template placed in output. Edit as needed.', false);
   showToast('Template applied directly.');
 }
 
 function inferStudyTypeFromTemplate(template) {
   if (!template) return '';
-
-  var body = String(template.body || '');
-  var examMatch = body.match(/(?:^|\n)\s*(?:EXAM|STUDY|PROCEDURE)\s*:\s*([^\n]+)/i);
-  if (examMatch && examMatch[1]) {
-    return String(examMatch[1]).trim();
-  }
 
   var name = String(template.name || '').trim();
   if (name) return name;
