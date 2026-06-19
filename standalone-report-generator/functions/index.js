@@ -125,6 +125,31 @@ async function getVerifiedUser(req) {
   return admin.auth().verifyIdToken(idToken);
 }
 
+async function getStoredProviderApiKey(uid, provider) {
+  const doc = await admin.firestore()
+    .collection('users')
+    .doc(uid)
+    .collection('aiProviderKeys')
+    .doc(provider)
+    .get();
+
+  if (!doc.exists) return '';
+  const data = doc.data() || {};
+  return String(data.apiKey || '').trim();
+}
+
+async function saveProviderApiKey(uid, provider, apiKey) {
+  await admin.firestore()
+    .collection('users')
+    .doc(uid)
+    .collection('aiProviderKeys')
+    .doc(provider)
+    .set({
+      apiKey: String(apiKey || '').trim(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+}
+
 exports.aiProxy = onRequest({
   region: 'us-central1',
   timeoutSeconds: 60,
@@ -141,8 +166,9 @@ exports.aiProxy = onRequest({
     return;
   }
 
+  let decodedUser;
   try {
-    await getVerifiedUser(req);
+    decodedUser = await getVerifiedUser(req);
   } catch (err) {
     unauthorized(res, err && err.message ? err.message : 'Unauthorized request.');
     return;
@@ -150,6 +176,7 @@ exports.aiProxy = onRequest({
 
   const provider = String((req.body && req.body.provider) || 'openai').trim().toLowerCase() || 'openai';
   const model = String((req.body && req.body.model) || '').trim();
+  const providerApiKey = String((req.body && req.body.providerApiKey) || '').trim();
   const prompt = req.body && req.body.prompt ? req.body.prompt : {};
 
   if (!model) {
@@ -166,7 +193,18 @@ exports.aiProxy = onRequest({
     let content = '';
 
     if (provider === 'anthropic') {
-      throw new Error('Anthropic is not configured yet. Add ANTHROPIC_API_KEY and bind it in functions before using this provider.');
+      let apiKey = providerApiKey;
+      if (apiKey) {
+        await saveProviderApiKey(decodedUser.uid, 'anthropic', apiKey);
+      } else {
+        apiKey = await getStoredProviderApiKey(decodedUser.uid, 'anthropic');
+      }
+
+      if (!apiKey) {
+        throw new Error('Claude API key is not saved yet. Enter your Claude key in AI Settings and generate once to save it.');
+      }
+
+      content = await callAnthropic(model, prompt, apiKey);
     } else if (provider === 'gemini') {
       throw new Error('Gemini is not configured yet. Add GEMINI_API_KEY and bind it in functions before using this provider.');
     } else {

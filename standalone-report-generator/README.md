@@ -37,7 +37,6 @@ npm install
 
 ```bash
 firebase functions:secrets:set OPENAI_API_KEY --project reports-eadf8
-firebase functions:secrets:set ANTHROPIC_API_KEY --project reports-eadf8
 firebase functions:secrets:set GEMINI_API_KEY --project reports-eadf8
 ```
 
@@ -122,8 +121,9 @@ jobs:
 
 ## Notes
 
-- API provider keys are stored in Firebase Secret Manager and bound to the `aiProxy` function.
-- The browser sends only provider/model/prompt and a Firebase ID token to `/api/generate`.
+- OpenAI and Gemini keys are managed via Firebase Secret Manager and bound to the `aiProxy` function.
+- Claude (Anthropic) key is user-scoped and saved in Firestore at `users/{uid}/aiProviderKeys/anthropic` after the first Claude generation request with a key entered in AI Settings.
+- The browser sends provider/model/prompt and a Firebase ID token to `/api/generate`; for Claude, it can also send `providerApiKey` once to persist the key.
 - Templates can store their active phrase handling selection through `selectedPhraseHandlingIds` so each template can remember which phrase rules should be applied during generation.
 - Phrase handling drafts can be generated from an example phrase or rule and then saved for reuse.
 - Update model options or provider list in `js/app.js` as needed.

@@ -309,10 +309,29 @@ function initOpenAiKeyControls() {
   var modelSelect = document.getElementById('ai-model-input');
   if (!providerSelect || !keyInput || !rememberCheckbox || !keyLabel || !modelSelect) return;
 
+  var rememberLabel = rememberCheckbox ? rememberCheckbox.closest('label') : null;
+
   function refreshForProvider(provider) {
     renderAiModelOptions(provider, modelSelect);
     var providerConfig = getAiProviderConfig(provider);
     keyInput.value = '';
+    if (provider === 'anthropic') {
+      keyInput.disabled = false;
+      keyInput.placeholder = providerConfig.placeholder || 'sk-ant-...';
+      keyLabel.textContent = 'Claude API key';
+
+      if (rememberCheckbox) {
+        rememberCheckbox.checked = true;
+        rememberCheckbox.disabled = true;
+      }
+      if (rememberLabel) {
+        rememberLabel.style.display = '';
+        rememberLabel.textContent = 'Claude key is saved to your Firebase account';
+      }
+      if (clearSavedKeyBtn) clearSavedKeyBtn.style.display = '';
+      return;
+    }
+
     keyInput.disabled = true;
     keyInput.placeholder = providerConfig.label + ' key is configured in Firebase Functions.';
     keyLabel.textContent = 'API key source';
@@ -320,10 +339,10 @@ function initOpenAiKeyControls() {
     if (rememberCheckbox) {
       rememberCheckbox.checked = false;
       rememberCheckbox.disabled = true;
-      var rememberLabel = rememberCheckbox.closest('label');
-      if (rememberLabel) rememberLabel.style.display = 'none';
     }
-
+    if (rememberLabel) {
+      rememberLabel.style.display = 'none';
+    }
     if (clearSavedKeyBtn) {
       clearSavedKeyBtn.style.display = 'none';
     }
@@ -465,7 +484,24 @@ function saveAdaptiveGuidanceForMode(outputMode, guidance, meta) {
 }
 
 function handleClearSavedOpenAiKey() {
-  setReportStatus('API keys are now managed in Firebase Functions.', false);
+  if (!_uid) {
+    setReportStatus('Sign in required before clearing saved keys.', true);
+    return;
+  }
+
+  var provider = getSelectedAiProvider();
+  if (provider !== 'anthropic') {
+    setReportStatus('Only Claude key clearing is supported here.', false);
+    return;
+  }
+
+  userRef(_uid).collection('aiProviderKeys').doc('anthropic').delete().then(function() {
+    var keyInput = document.getElementById('ai-api-key-input');
+    if (keyInput) keyInput.value = '';
+    setReportStatus('Saved Claude key removed from Firebase.', false);
+  }).catch(function(err) {
+    setReportStatus((err && err.message) || 'Failed to clear saved Claude key.', true);
+  });
 }
 
 function teardownUserSubscriptions() {
@@ -2286,6 +2322,10 @@ async function generateWithBrowserAiProvider(payload) {
   var model = String(payload.model || providerConfig.defaultModel || '').trim();
   var idToken = await appAuth.currentUser.getIdToken();
   var endpoint = resolveAiProxyEndpoint();
+  var keyInput = document.getElementById('ai-api-key-input');
+  var providerApiKey = provider === 'anthropic' && keyInput
+    ? String(keyInput.value || '').trim()
+    : '';
 
   var response = await fetch(endpoint, {
     method: 'POST',
@@ -2296,6 +2336,7 @@ async function generateWithBrowserAiProvider(payload) {
     body: JSON.stringify({
       provider: provider,
       model: model,
+      providerApiKey: providerApiKey,
       prompt: {
         system: String(prompt.system || ''),
         user: String(prompt.user || '')
