@@ -31,13 +31,11 @@ var AI_PROVIDER_CONFIG = {
     label: 'Claude / Anthropic',
     keyLabel: 'Claude / Anthropic API key',
     placeholder: 'sk-ant-...',
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: 'claude-3-5-sonnet-latest',
     models: [
-      { value: 'claude-fable-5', label: 'Claude Fable 5' },
-      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (default)' },
-      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' }
+      { value: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet' },
+      { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
+      { value: 'claude-3-opus-latest', label: 'Claude 3 Opus' }
     ]
   },
   gemini: {
@@ -317,19 +315,25 @@ function initOpenAiKeyControls() {
     renderAiModelOptions(provider, modelSelect);
     var providerConfig = getAiProviderConfig(provider);
     keyInput.value = '';
+    if (provider === 'anthropic') {
+      keyInput.disabled = false;
+      keyInput.placeholder = providerConfig.placeholder || 'sk-ant-...';
+      keyLabel.textContent = 'Claude API key';
+
+      if (rememberCheckbox) {
+        rememberCheckbox.checked = true;
+        rememberCheckbox.disabled = true;
+      }
+      if (rememberLabel) {
+        rememberLabel.style.display = '';
+        rememberLabel.textContent = 'Claude key is saved to your Firebase account';
+      }
+      if (clearSavedKeyBtn) clearSavedKeyBtn.style.display = '';
+      return;
+    }
+
     keyInput.disabled = true;
     keyInput.placeholder = providerConfig.label + ' key is configured in Firebase Functions.';
-
-    if (rememberCheckbox) {
-      rememberCheckbox.checked = false;
-      rememberCheckbox.disabled = true;
-    }
-    if (rememberLabel) {
-      rememberLabel.style.display = 'none';
-    }
-    if (clearSavedKeyBtn) {
-      clearSavedKeyBtn.style.display = 'none';
-    }
     keyLabel.textContent = 'API key source';
 
     if (rememberCheckbox) {
@@ -1145,33 +1149,6 @@ function getFindingsImpressionOnlyEnabled() {
   return !!(checkbox && checkbox.checked);
 }
 
-function canonicalizeReportSectionKey(key) {
-  var clean = String(key || '').trim().toLowerCase();
-  if (!clean) return '';
-
-  var collapsed = clean.replace(/[^a-z]/g, '');
-  if (
-    collapsed === 'finding' ||
-    collapsed === 'findings' ||
-    collapsed === 'reportfinding' ||
-    collapsed === 'reportfindings'
-  ) {
-    return 'findings';
-  }
-
-  if (
-    collapsed === 'impression' ||
-    collapsed === 'impressions' ||
-    collapsed === 'conclusion' ||
-    collapsed === 'conclusions' ||
-    collapsed === 'assessment'
-  ) {
-    return 'impression';
-  }
-
-  return clean;
-}
-
 function getReportStudyType() {
   var input = document.getElementById('report-study-type-input');
   return input ? String(input.value || '').trim() : '';
@@ -1241,7 +1218,6 @@ async function handleGenerateReport() {
       model: getSelectedAiModel(),
       outputMode: outputMode,
       chatModeEnabled: chatModeEnabled,
-      findingsImpressionOnly: getFindingsImpressionOnlyEnabled(),
       findings: findings,
       studyType: studyType,
       indication: indication,
@@ -1252,7 +1228,7 @@ async function handleGenerateReport() {
     });
 
     var data = response && response.data ? response.data : {};
-    outputEl.value = formatReportOutputFromData(data, outputMode, templateText, findings);
+    outputEl.value = formatReportOutputFromData(data, outputMode, templateText);
 
     if (chatModeEnabled) {
       var initialQuestions = normalizeFollowUpQuestions(data && data.followUpQuestions);
@@ -1267,7 +1243,6 @@ async function handleGenerateReport() {
             promptOverride: buildChatRefinementPrompt({
               findings: findings,
               outputMode: outputMode,
-              findingsImpressionOnly: getFindingsImpressionOnlyEnabled(),
               studyType: studyType,
               indication: indication,
               templateText: templateText,
@@ -1279,7 +1254,7 @@ async function handleGenerateReport() {
             })
           });
           var refinementData = refinement && refinement.data ? refinement.data : {};
-          outputEl.value = formatReportOutputFromData(refinementData, outputMode, templateText, findings);
+          outputEl.value = formatReportOutputFromData(refinementData, outputMode, templateText);
           setReportStatus('CHAT mode: draft refined with follow-up answers.', false);
           showToast('CHAT refinement complete.');
           return;
@@ -1451,57 +1426,72 @@ function parseReportSectionsFromText(text) {
   return sections;
 }
 
-function filterReportSections(sections, findingsImpressionOnly, sourceFindings) {
+function filterReportSections(sections, findingsImpressionOnly) {
   var input = sections && typeof sections === 'object' ? sections : {};
   var orderedKeys = dedupeSectionKeys(Object.keys(input));
   var result = {};
-  var findingsChunks = [];
-  var impressionChunks = [];
-  var overflowChunks = [];
 
   orderedKeys.forEach(function(key) {
-    var canonical = canonicalizeReportSectionKey(key);
-    var value = String(input[key] || '').trim();
+    var canonical = String(key || '').trim().toLowerCase();
+    var value = input[key];
 
     if (!canonical) return;
-    if (canonical === 'other' && !value) return;
-
-    if (findingsImpressionOnly) {
-      if (!value) return;
-      if (canonical === 'findings') {
-        findingsChunks.push(value);
-        return;
-      }
-      if (canonical === 'impression') {
-        impressionChunks.push(value);
-        return;
-      }
-      overflowChunks.push(value);
-      return;
-    }
+    if (canonical === 'other' && !String(value || '').trim()) return;
+    if (findingsImpressionOnly && canonical !== 'findings' && canonical !== 'impression') return;
 
     result[key] = value;
   });
 
-  if (findingsImpressionOnly) {
-    var mergedFindings = findingsChunks.join('\n').trim();
-    if (!mergedFindings) {
-      mergedFindings = String(sourceFindings || '').trim() || overflowChunks.join('\n').trim();
-    }
-    var mergedImpression = impressionChunks.join('\n').trim();
-
-    if (mergedFindings) {
-      result.Findings = mergedFindings;
-    }
-    if (mergedImpression) {
-      result.Impression = mergedImpression;
-    }
-  }
-
   return result;
 }
 
-function formatReportOutputFromData(data, outputMode, templateText, sourceFindings) {
+function collapseSectionsToFindingsAndImpression(sections, templateText) {
+  var input = sections && typeof sections === 'object' ? sections : {};
+  var orderedKeys = dedupeSectionKeys(Object.keys(input));
+  var findingsParts = [];
+  var impression = '';
+  var templateStyles = extractTemplateSectionStyles(templateText);
+  var styleByCanonical = {};
+
+  templateStyles.forEach(function(style) {
+    if (!style || !style.canonicalKey || styleByCanonical[style.canonicalKey]) return;
+    styleByCanonical[style.canonicalKey] = style;
+  });
+
+  orderedKeys.forEach(function(key) {
+    var canonical = String(key || '').trim().toLowerCase();
+    var value = input[key];
+    var narrative = normalizeSectionNarrative(key, value);
+
+    if (!canonical) return;
+    if (canonical === 'other' && !String(value || '').trim()) return;
+    if (canonical === 'impression') {
+      if (!impression) impression = narrative;
+      return;
+    }
+    if (!narrative) return;
+
+    if (canonical === 'findings') {
+      findingsParts.push(narrative);
+      return;
+    }
+
+    var style = styleByCanonical[canonical] || {
+      label: key,
+      separator: ':',
+      indent: '',
+      inline: false
+    };
+    findingsParts.push(renderSectionWithStyle(style, narrative));
+  });
+
+  var result = {};
+  if (findingsParts.length) result.Findings = findingsParts.join('\n\n').trim();
+  if (impression) result.Impression = impression;
+  return result;
+}
+
+function formatReportOutputFromData(data, outputMode, templateText) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
 
@@ -1519,16 +1509,11 @@ function formatReportOutputFromData(data, outputMode, templateText, sourceFindin
   }
 
   var sections = payload && payload.sections && typeof payload.sections === 'object' ? payload.sections : {};
-  sections = filterReportSections(sections, getFindingsImpressionOnlyEnabled(), sourceFindings);
-
-  if (
-    mode === 'full-keep-findings' &&
-    getFindingsImpressionOnlyEnabled() &&
-    String(sourceFindings || '').trim()
-  ) {
-    sections.Findings = String(sourceFindings || '').trim();
+  if (getFindingsImpressionOnlyEnabled()) {
+    sections = collapseSectionsToFindingsAndImpression(sections, templateText);
+  } else {
+    sections = filterReportSections(sections, false);
   }
-
   var ordered = dedupeSectionKeys(Object.keys(sections || {}));
   if (!ordered.length) {
     return String(payload.text || '').trim();
@@ -1728,10 +1713,6 @@ function buildChatRefinementPrompt(payload) {
     system += '\nReturn only an updated improved finding based on the initial draft and follow-up clarifications.';
   } else {
     system += '\nOutput shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.';
-    if (payload.findingsImpressionOnly) {
-      system += '\nBecause findingsImpressionOnly is enabled, return only Findings and Impression in sections.';
-      system += '\nEvery positive statement in Findings must be directly supported by findingsInput or followUpClarifications; otherwise omit it.';
-    }
   }
 
   var user = {
@@ -1743,7 +1724,6 @@ function buildChatRefinementPrompt(payload) {
     templateFields: extractTemplateFieldNames(payload.templateText || ''),
     templateSectionDefaults: extractTemplateSectionDefaults(payload.templateText || ''),
     phraseHandlingRules: payload.phraseHandlingText || '',
-    findingsImpressionOnly: !!payload.findingsImpressionOnly,
     desiredOutputDraft: payload.desiredOutputDraft || '',
     adaptiveGuidance: adaptiveGuidance,
     initialDraft: payload.initialDraft || {},
@@ -2143,13 +2123,11 @@ function buildReportPrompt(payload) {
   var templateText = String(payload.templateText || '').trim();
   var hasTemplate = !!templateText;
   var adaptiveGuidance = String(payload.adaptiveGuidance || '').trim();
-  var findingsImpressionOnly = !!payload.findingsImpressionOnly;
 
   var instructions = [
     'You are a subspecialty-experienced radiologist generating a high-quality diagnostic report draft.',
     'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
     'Do not invent findings that are not in the input. Use medically appropriate uncertainty language when needed.',
-    'Every positive imaging assertion must be grounded in findingsInput. If a positive detail is not present in findingsInput, do not add it.',
     'Apply phraseHandlingRules exactly when they are provided.'
   ];
 
@@ -2192,11 +2170,6 @@ function buildReportPrompt(payload) {
     instructions.push('Include pertinent negatives appropriate for the study type when clinically justified.');
   }
 
-  if (findingsImpressionOnly && !isImpressionMode(outputMode) && outputMode !== 'improve-finding') {
-    instructions.push('Because findingsImpressionOnly is enabled, return only Findings and Impression sections.');
-    instructions.push('Findings must be derived only from findingsInput. Do not introduce new positive findings or anatomy not present in findingsInput.');
-  }
-
   if (chatModeEnabled) {
     if (isImpressionMode(outputMode)) {
       instructions.push('Output shape must be exactly: {"impression":"...","followUpQuestions":[{"question":"...","rationale":"..."}]}.');
@@ -2224,7 +2197,6 @@ function buildReportPrompt(payload) {
     studyType: payload.studyType || '',
     indication: payload.indication || '',
     findingsInput: payload.findings || '',
-    findingsImpressionOnly: findingsImpressionOnly,
     templateText: templateText,
     templateFields: extractTemplateFieldNames(templateText),
     templateSectionDefaults: extractTemplateSectionDefaults(templateText),
