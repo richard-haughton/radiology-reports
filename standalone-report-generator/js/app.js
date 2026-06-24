@@ -31,11 +31,13 @@ var AI_PROVIDER_CONFIG = {
     label: 'Claude / Anthropic',
     keyLabel: 'Claude / Anthropic API key',
     placeholder: 'sk-ant-...',
-    defaultModel: 'claude-3-5-sonnet-latest',
+    defaultModel: 'claude-sonnet-4-6',
     models: [
-      { value: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet' },
-      { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
-      { value: 'claude-3-opus-latest', label: 'Claude 3 Opus' }
+      { value: 'claude-fable-5', label: 'Claude Fable 5' },
+      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (default)' },
+      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' }
     ]
   },
   gemini: {
