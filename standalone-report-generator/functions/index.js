@@ -194,13 +194,23 @@ exports.aiProxy = onRequest({
     let content = '';
 
     if (provider === 'anthropic') {
+      // Key priority: (1) key sent in this request body, (2) CLAUDE_API_KEY Firebase secret, (3) user-stored Firestore key
       let apiKey = providerApiKey;
       if (apiKey) {
-        await saveProviderApiKey(decodedUser.uid, 'anthropic', apiKey);
+        // User provided a key in this request — save it for future Firestore fallback
+        await saveProviderApiKey(decodedUser.uid, 'anthropic', apiKey).catch(() => {});
       } else {
-        apiKey = await getStoredProviderApiKey(decodedUser.uid, 'anthropic');
-        if (!apiKey) {
-          apiKey = String(claudeApiKey.value() || '').trim();
+        // Prefer the shared Firebase Secret over any previously-stored per-user key
+        apiKey = String(claudeApiKey.value() || '').trim();
+        if (apiKey) {
+          console.log('Using CLAUDE_API_KEY Firebase secret.');
+        } else {
+          // Last resort: user-stored Firestore key (e.g. before secret was configured)
+          try {
+            apiKey = await getStoredProviderApiKey(decodedUser.uid, 'anthropic');
+          } catch (fsErr) {
+            console.error('Firestore key lookup failed:', fsErr);
+          }
         }
       }
 
@@ -221,6 +231,7 @@ exports.aiProxy = onRequest({
 
     res.status(200).json({ content });
   } catch (err) {
+    console.error('aiProxy error:', err);
     const message = err && err.message ? err.message : 'Failed to generate report.';
     res.status(500).json({ error: { message } });
   }

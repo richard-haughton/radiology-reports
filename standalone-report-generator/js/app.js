@@ -315,25 +315,19 @@ function initOpenAiKeyControls() {
     renderAiModelOptions(provider, modelSelect);
     var providerConfig = getAiProviderConfig(provider);
     keyInput.value = '';
-    if (provider === 'anthropic') {
-      keyInput.disabled = false;
-      keyInput.placeholder = providerConfig.placeholder || 'sk-ant-...';
-      keyLabel.textContent = 'Claude API key';
-
-      if (rememberCheckbox) {
-        rememberCheckbox.checked = true;
-        rememberCheckbox.disabled = true;
-      }
-      if (rememberLabel) {
-        rememberLabel.style.display = '';
-        rememberLabel.textContent = 'Claude key is saved to your Firebase account';
-      }
-      if (clearSavedKeyBtn) clearSavedKeyBtn.style.display = '';
-      return;
-    }
-
     keyInput.disabled = true;
     keyInput.placeholder = providerConfig.label + ' key is configured in Firebase Functions.';
+
+    if (rememberCheckbox) {
+      rememberCheckbox.checked = false;
+      rememberCheckbox.disabled = true;
+    }
+    if (rememberLabel) {
+      rememberLabel.style.display = 'none';
+    }
+    if (clearSavedKeyBtn) {
+      clearSavedKeyBtn.style.display = 'none';
+    }
     keyLabel.textContent = 'API key source';
 
     if (rememberCheckbox) {
