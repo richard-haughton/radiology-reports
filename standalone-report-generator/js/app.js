@@ -1149,6 +1149,33 @@ function getFindingsImpressionOnlyEnabled() {
   return !!(checkbox && checkbox.checked);
 }
 
+function canonicalizeReportSectionKey(key) {
+  var clean = String(key || '').trim().toLowerCase();
+  if (!clean) return '';
+
+  var collapsed = clean.replace(/[^a-z]/g, '');
+  if (
+    collapsed === 'finding' ||
+    collapsed === 'findings' ||
+    collapsed === 'reportfinding' ||
+    collapsed === 'reportfindings'
+  ) {
+    return 'findings';
+  }
+
+  if (
+    collapsed === 'impression' ||
+    collapsed === 'impressions' ||
+    collapsed === 'conclusion' ||
+    collapsed === 'conclusions' ||
+    collapsed === 'assessment'
+  ) {
+    return 'impression';
+  }
+
+  return clean;
+}
+
 function getReportStudyType() {
   var input = document.getElementById('report-study-type-input');
   return input ? String(input.value || '').trim() : '';
@@ -1218,6 +1245,7 @@ async function handleGenerateReport() {
       model: getSelectedAiModel(),
       outputMode: outputMode,
       chatModeEnabled: chatModeEnabled,
+      findingsImpressionOnly: getFindingsImpressionOnlyEnabled(),
       findings: findings,
       studyType: studyType,
       indication: indication,
@@ -1228,7 +1256,7 @@ async function handleGenerateReport() {
     });
 
     var data = response && response.data ? response.data : {};
-    outputEl.value = formatReportOutputFromData(data, outputMode, templateText);
+    outputEl.value = formatReportOutputFromData(data, outputMode, templateText, findings);
 
     if (chatModeEnabled) {
       var initialQuestions = normalizeFollowUpQuestions(data && data.followUpQuestions);
@@ -1243,6 +1271,7 @@ async function handleGenerateReport() {
             promptOverride: buildChatRefinementPrompt({
               findings: findings,
               outputMode: outputMode,
+              findingsImpressionOnly: getFindingsImpressionOnlyEnabled(),
               studyType: studyType,
               indication: indication,
               templateText: templateText,
@@ -1254,7 +1283,7 @@ async function handleGenerateReport() {
             })
           });
           var refinementData = refinement && refinement.data ? refinement.data : {};
-          outputEl.value = formatReportOutputFromData(refinementData, outputMode, templateText);
+          outputEl.value = formatReportOutputFromData(refinementData, outputMode, templateText, findings);
           setReportStatus('CHAT mode: draft refined with follow-up answers.', false);
           showToast('CHAT refinement complete.');
           return;
@@ -1426,26 +1455,57 @@ function parseReportSectionsFromText(text) {
   return sections;
 }
 
-function filterReportSections(sections, findingsImpressionOnly) {
+function filterReportSections(sections, findingsImpressionOnly, sourceFindings) {
   var input = sections && typeof sections === 'object' ? sections : {};
   var orderedKeys = dedupeSectionKeys(Object.keys(input));
   var result = {};
+  var findingsChunks = [];
+  var impressionChunks = [];
+  var overflowChunks = [];
 
   orderedKeys.forEach(function(key) {
-    var canonical = String(key || '').trim().toLowerCase();
-    var value = input[key];
+    var canonical = canonicalizeReportSectionKey(key);
+    var value = String(input[key] || '').trim();
 
     if (!canonical) return;
-    if (canonical === 'other' && !String(value || '').trim()) return;
-    if (findingsImpressionOnly && canonical !== 'findings' && canonical !== 'impression') return;
+    if (canonical === 'other' && !value) return;
+
+    if (findingsImpressionOnly) {
+      if (!value) return;
+      if (canonical === 'findings') {
+        findingsChunks.push(value);
+        return;
+      }
+      if (canonical === 'impression') {
+        impressionChunks.push(value);
+        return;
+      }
+      overflowChunks.push(value);
+      return;
+    }
 
     result[key] = value;
   });
 
+  if (findingsImpressionOnly) {
+    var mergedFindings = findingsChunks.join('\n').trim();
+    if (!mergedFindings) {
+      mergedFindings = String(sourceFindings || '').trim() || overflowChunks.join('\n').trim();
+    }
+    var mergedImpression = impressionChunks.join('\n').trim();
+
+    if (mergedFindings) {
+      result.Findings = mergedFindings;
+    }
+    if (mergedImpression) {
+      result.Impression = mergedImpression;
+    }
+  }
+
   return result;
 }
 
-function formatReportOutputFromData(data, outputMode, templateText) {
+function formatReportOutputFromData(data, outputMode, templateText, sourceFindings) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
 
@@ -1463,7 +1523,16 @@ function formatReportOutputFromData(data, outputMode, templateText) {
   }
 
   var sections = payload && payload.sections && typeof payload.sections === 'object' ? payload.sections : {};
-  sections = filterReportSections(sections, getFindingsImpressionOnlyEnabled());
+  sections = filterReportSections(sections, getFindingsImpressionOnlyEnabled(), sourceFindings);
+
+  if (
+    mode === 'full-keep-findings' &&
+    getFindingsImpressionOnlyEnabled() &&
+    String(sourceFindings || '').trim()
+  ) {
+    sections.Findings = String(sourceFindings || '').trim();
+  }
+
   var ordered = dedupeSectionKeys(Object.keys(sections || {}));
   if (!ordered.length) {
     return String(payload.text || '').trim();
@@ -1663,6 +1732,10 @@ function buildChatRefinementPrompt(payload) {
     system += '\nReturn only an updated improved finding based on the initial draft and follow-up clarifications.';
   } else {
     system += '\nOutput shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.';
+    if (payload.findingsImpressionOnly) {
+      system += '\nBecause findingsImpressionOnly is enabled, return only Findings and Impression in sections.';
+      system += '\nEvery positive statement in Findings must be directly supported by findingsInput or followUpClarifications; otherwise omit it.';
+    }
   }
 
   var user = {
@@ -1674,6 +1747,7 @@ function buildChatRefinementPrompt(payload) {
     templateFields: extractTemplateFieldNames(payload.templateText || ''),
     templateSectionDefaults: extractTemplateSectionDefaults(payload.templateText || ''),
     phraseHandlingRules: payload.phraseHandlingText || '',
+    findingsImpressionOnly: !!payload.findingsImpressionOnly,
     desiredOutputDraft: payload.desiredOutputDraft || '',
     adaptiveGuidance: adaptiveGuidance,
     initialDraft: payload.initialDraft || {},
@@ -2073,11 +2147,13 @@ function buildReportPrompt(payload) {
   var templateText = String(payload.templateText || '').trim();
   var hasTemplate = !!templateText;
   var adaptiveGuidance = String(payload.adaptiveGuidance || '').trim();
+  var findingsImpressionOnly = !!payload.findingsImpressionOnly;
 
   var instructions = [
     'You are a subspecialty-experienced radiologist generating a high-quality diagnostic report draft.',
     'Return valid JSON only. Do not return markdown fences or prose outside JSON.',
     'Do not invent findings that are not in the input. Use medically appropriate uncertainty language when needed.',
+    'Every positive imaging assertion must be grounded in findingsInput. If a positive detail is not present in findingsInput, do not add it.',
     'Apply phraseHandlingRules exactly when they are provided.'
   ];
 
@@ -2120,6 +2196,11 @@ function buildReportPrompt(payload) {
     instructions.push('Include pertinent negatives appropriate for the study type when clinically justified.');
   }
 
+  if (findingsImpressionOnly && !isImpressionMode(outputMode) && outputMode !== 'improve-finding') {
+    instructions.push('Because findingsImpressionOnly is enabled, return only Findings and Impression sections.');
+    instructions.push('Findings must be derived only from findingsInput. Do not introduce new positive findings or anatomy not present in findingsInput.');
+  }
+
   if (chatModeEnabled) {
     if (isImpressionMode(outputMode)) {
       instructions.push('Output shape must be exactly: {"impression":"...","followUpQuestions":[{"question":"...","rationale":"..."}]}.');
@@ -2147,6 +2228,7 @@ function buildReportPrompt(payload) {
     studyType: payload.studyType || '',
     indication: payload.indication || '',
     findingsInput: payload.findings || '',
+    findingsImpressionOnly: findingsImpressionOnly,
     templateText: templateText,
     templateFields: extractTemplateFieldNames(templateText),
     templateSectionDefaults: extractTemplateSectionDefaults(templateText),
