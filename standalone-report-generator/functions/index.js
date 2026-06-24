@@ -5,6 +5,7 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 
 const openAiApiKey = defineSecret('OPENAI_API_KEY');
+const claudeApiKey = defineSecret('CLAUDE_API_KEY');
 
 function badRequest(res, message) {
   res.status(400).json({ error: { message } });
@@ -154,7 +155,7 @@ exports.aiProxy = onRequest({
   region: 'us-central1',
   timeoutSeconds: 60,
   cors: true,
-  secrets: [openAiApiKey]
+  secrets: [openAiApiKey, claudeApiKey]
 }, async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -198,10 +199,13 @@ exports.aiProxy = onRequest({
         await saveProviderApiKey(decodedUser.uid, 'anthropic', apiKey);
       } else {
         apiKey = await getStoredProviderApiKey(decodedUser.uid, 'anthropic');
+        if (!apiKey) {
+          apiKey = String(claudeApiKey.value() || '').trim();
+        }
       }
 
       if (!apiKey) {
-        throw new Error('Claude API key is not saved yet. Enter your Claude key in AI Settings and generate once to save it.');
+        throw new Error('Claude API key is not configured. Save a Claude key in AI Settings or set CLAUDE_API_KEY in Firebase Functions and deploy.');
       }
 
       content = await callAnthropic(model, prompt, apiKey);
