@@ -1458,6 +1458,11 @@ function collapseSectionsToFindingsAndImpression(sections, templateText) {
     styleByCanonical[style.canonicalKey] = style;
   });
 
+  function isNonFindingsSection(canonical) {
+    if (!canonical) return false;
+    return /^(exam|comparison|technique|contrast|history|clinical history|clinical indication|indication|reason for exam|reason for study|protocol)$/.test(canonical);
+  }
+
   orderedKeys.forEach(function(key) {
     var canonical = String(key || '').trim().toLowerCase();
     var value = input[key];
@@ -1469,6 +1474,7 @@ function collapseSectionsToFindingsAndImpression(sections, templateText) {
       if (!impression) impression = narrative;
       return;
     }
+    if (isNonFindingsSection(canonical)) return;
     if (!narrative) return;
 
     if (canonical === 'findings') {

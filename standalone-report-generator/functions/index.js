@@ -78,39 +78,6 @@ async function callAnthropic(model, prompt, apiKey) {
   return content;
 }
 
-async function callGemini(model, prompt, apiKey) {
-  const response = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey),
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: String(prompt.system || '') }]
-        },
-        contents: [{ role: 'user', parts: [{ text: String(prompt.user || '') }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2048
-        }
-      })
-    }
-  );
-
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(mapProviderError('Gemini', response.status, body));
-  }
-
-  const content = body && body.candidates && body.candidates[0] && body.candidates[0].content && Array.isArray(body.candidates[0].content.parts)
-    ? body.candidates[0].content.parts.map((part) => String((part && part.text) || '')).join('')
-    : '';
-
-  return content;
-}
-
 async function getVerifiedUser(req) {
   const authHeader = String(req.headers.authorization || '');
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -219,8 +186,6 @@ exports.aiProxy = onRequest({
       }
 
       content = await callAnthropic(model, prompt, apiKey);
-    } else if (provider === 'gemini') {
-      throw new Error('Gemini is not configured yet. Add GEMINI_API_KEY and bind it in functions before using this provider.');
     } else {
       const apiKey = String(openAiApiKey.value() || '').trim();
       if (!apiKey) {
