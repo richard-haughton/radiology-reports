@@ -33,9 +33,9 @@ jobs:
         run: |
           rm -rf site
           mkdir -p site
-          cp index.html site/
-          cp -R css site/
-          cp -R js site/
+          cp standalone-report-generator/index.html site/
+          cp -R standalone-report-generator/css site/
+          cp -R standalone-report-generator/js site/
           touch site/.nojekyll
 
       - name: Upload website artifact
