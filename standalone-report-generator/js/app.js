@@ -37,17 +37,6 @@ var AI_PROVIDER_CONFIG = {
       { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku' },
       { value: 'claude-3-opus-latest', label: 'Claude 3 Opus' }
     ]
-  },
-  gemini: {
-    label: 'Gemini',
-    keyLabel: 'Gemini API key',
-    placeholder: 'AIza...',
-    defaultModel: 'gemini-2.0-flash',
-    models: [
-      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-      { value: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
-      { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' }
-    ]
   }
 };
 
@@ -2439,7 +2428,8 @@ function resolveAiProxyEndpoint() {
 
 function getSelectedAiProvider() {
   var select = document.getElementById('ai-provider-select');
-  return select ? String(select.value || 'openai').trim() : 'openai';
+  var provider = select ? String(select.value || 'openai').trim() : 'openai';
+  return AI_PROVIDER_CONFIG[provider] ? provider : 'openai';
 }
 
 function getSelectedAiModel() {

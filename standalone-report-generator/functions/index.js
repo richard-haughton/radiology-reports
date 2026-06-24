@@ -78,6 +78,24 @@ async function callAnthropic(model, prompt, apiKey) {
   return content;
 }
 
+function normalizeAnthropicModel(model) {
+  const clean = String(model || '').trim();
+  if (!clean) return 'claude-sonnet-4-6';
+
+  const aliases = {
+    'claude-3-5-sonnet-latest': 'claude-sonnet-4-6',
+    'claude-3-5-haiku-latest': 'claude-sonnet-4-6',
+    'claude-3-opus-latest': 'claude-opus-4-6',
+    'claude-sonnet-4-6': 'claude-sonnet-4-6',
+    'claude-opus-4-6': 'claude-opus-4-6',
+    'claude-opus-4-7': 'claude-opus-4-7',
+    'claude-opus-4-8': 'claude-opus-4-8',
+    'claude-fable-5': 'claude-fable-5'
+  };
+
+  return aliases[clean] || 'claude-sonnet-4-6';
+}
+
 async function getVerifiedUser(req) {
   const authHeader = String(req.headers.authorization || '');
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -162,6 +180,7 @@ exports.aiProxy = onRequest({
 
     if (provider === 'anthropic') {
       // Key priority: (1) key sent in this request body, (2) CLAUDE_API_KEY Firebase secret, (3) user-stored Firestore key
+      const normalizedModel = normalizeAnthropicModel(model);
       let apiKey = providerApiKey;
       if (apiKey) {
         // User provided a key in this request — save it for future Firestore fallback
@@ -185,7 +204,11 @@ exports.aiProxy = onRequest({
         throw new Error('Claude API key is not configured. Save a Claude key in AI Settings or set CLAUDE_API_KEY in Firebase Functions and deploy.');
       }
 
-      content = await callAnthropic(model, prompt, apiKey);
+      if (normalizedModel !== model) {
+        console.log('Normalized Anthropic model from', model, 'to', normalizedModel);
+      }
+
+      content = await callAnthropic(normalizedModel, prompt, apiKey);
     } else {
       const apiKey = String(openAiApiKey.value() || '').trim();
       if (!apiKey) {
