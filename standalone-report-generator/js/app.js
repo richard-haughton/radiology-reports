@@ -304,37 +304,19 @@ function initOpenAiKeyControls() {
     renderAiModelOptions(provider, modelSelect);
     var providerConfig = getAiProviderConfig(provider);
     keyInput.value = '';
-    if (provider === 'anthropic') {
-      keyInput.disabled = false;
-      keyInput.placeholder = providerConfig.placeholder || 'sk-ant-...';
-      keyLabel.textContent = 'Claude API key';
-
-      if (rememberCheckbox) {
-        rememberCheckbox.checked = true;
-        rememberCheckbox.disabled = true;
-      }
-      if (rememberLabel) {
-        rememberLabel.style.display = '';
-        rememberLabel.textContent = 'Claude key is saved to your Firebase account';
-      }
-      if (clearSavedKeyBtn) clearSavedKeyBtn.style.display = '';
-      return;
-    }
-
-    keyInput.disabled = true;
-    keyInput.placeholder = providerConfig.label + ' key is configured in Firebase Functions.';
-    keyLabel.textContent = 'API key source';
+    keyInput.disabled = false;
+    keyInput.placeholder = providerConfig.placeholder || 'Enter your API key';
+    keyLabel.textContent = providerConfig.keyLabel || 'API key';
 
     if (rememberCheckbox) {
-      rememberCheckbox.checked = false;
+      rememberCheckbox.checked = true;
       rememberCheckbox.disabled = true;
     }
     if (rememberLabel) {
-      rememberLabel.style.display = 'none';
+      rememberLabel.style.display = '';
+      rememberLabel.textContent = providerConfig.label + ' key is saved to your Firebase account';
     }
-    if (clearSavedKeyBtn) {
-      clearSavedKeyBtn.style.display = 'none';
-    }
+    if (clearSavedKeyBtn) clearSavedKeyBtn.style.display = '';
   }
 
   providerSelect.addEventListener('change', function() {
@@ -479,17 +461,14 @@ function handleClearSavedOpenAiKey() {
   }
 
   var provider = getSelectedAiProvider();
-  if (provider !== 'anthropic') {
-    setReportStatus('Only Claude key clearing is supported here.', false);
-    return;
-  }
+  var providerConfig = getAiProviderConfig(provider);
 
-  userRef(_uid).collection('aiProviderKeys').doc('anthropic').delete().then(function() {
+  userRef(_uid).collection('aiProviderKeys').doc(provider).delete().then(function() {
     var keyInput = document.getElementById('ai-api-key-input');
     if (keyInput) keyInput.value = '';
-    setReportStatus('Saved Claude key removed from Firebase.', false);
+    setReportStatus('Saved ' + providerConfig.label + ' key removed from Firebase.', false);
   }).catch(function(err) {
-    setReportStatus((err && err.message) || 'Failed to clear saved Claude key.', true);
+    setReportStatus((err && err.message) || 'Failed to clear saved ' + providerConfig.label + ' key.', true);
   });
 }
 
@@ -2368,9 +2347,7 @@ async function generateWithBrowserAiProvider(payload) {
   var idToken = await appAuth.currentUser.getIdToken();
   var endpoint = resolveAiProxyEndpoint();
   var keyInput = document.getElementById('ai-api-key-input');
-  var providerApiKey = provider === 'anthropic' && keyInput
-    ? String(keyInput.value || '').trim()
-    : '';
+  var providerApiKey = keyInput ? String(keyInput.value || '').trim() : '';
 
   var response = await fetch(endpoint, {
     method: 'POST',

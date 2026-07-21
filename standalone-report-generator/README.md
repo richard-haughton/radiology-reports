@@ -7,8 +7,8 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
 - Standalone login flow (Google sign-in via Firebase Auth)
 - Report template CRUD (users/{uid}/reportTemplates)
 - Phrase handling CRUD (users/{uid}/phraseHandlings)
-- AI report generation with user-provided OpenAI, Claude, or Gemini API keys (browser mode)
-- AI report generation via Firebase Functions proxy (server-side API keys)
+- AI report generation with each signed-in user's own OpenAI or Claude API key
+- AI report generation via Firebase Functions proxy (per-user API keys saved in Firestore)
 - Mobile-friendly two-column layout that collapses to one column
 - Firebase config files for standalone project setup (`firebase.json`, `.firebaserc`)
 - Firestore rules file included at `firestore.rules`
@@ -20,7 +20,7 @@ This folder is a starter app for the new standalone GitHub Pages report-generato
    - Authentication enabled for Google
    - Firestore enabled
 3. Add your GitHub Pages domain to Firebase authorized domains.
-4. Configure server-side API keys in Firebase Functions.
+4. No server-side secrets are required — each user enters their own API key in the app.
 
 ## Configure Firebase Functions AI proxy
 
@@ -33,31 +33,23 @@ cd functions
 npm install
 ```
 
-2. Set secrets directly in Firebase Secret Manager (no `.env` file required):
+2. Deploy hosting + functions:
 
 ```bash
-firebase functions:secrets:set OPENAI_API_KEY --project reports-eadf8
-firebase functions:secrets:set GEMINI_API_KEY --project reports-eadf8
-```
-
-3. (Optional) confirm secrets are present:
-
-```bash
-firebase functions:secrets:list --project reports-eadf8
-```
-
-4. Deploy hosting + functions:
-
-```bash
-cd ..
 firebase deploy --only hosting,functions --project YOUR_PROJECT_ID
 ```
+
+There are no shared/server-side API keys to configure. Each signed-in user enters
+their own OpenAI or Claude API key in the app's **AI Settings** panel. That key is
+saved to the user's own Firestore document at `users/{uid}/aiProviderKeys/{provider}`
+and is only ever used to fulfill that user's own generation requests.
 
 ## Firestore rules expectation
 
 This app assumes user-scoped access under:
 
 - `users/{uid}/reportTemplates/*`
+- `users/{uid}/aiProviderKeys/*`
 
 This folder already includes a deployable rules file:
 
@@ -121,9 +113,17 @@ jobs:
 
 ## Notes
 
-- OpenAI and Gemini keys are managed via Firebase Secret Manager and bound to the `aiProxy` function.
-- Claude (Anthropic) key is user-scoped and saved in Firestore at `users/{uid}/aiProviderKeys/anthropic` after the first Claude generation request with a key entered in AI Settings.
-- The browser sends provider/model/prompt and a Firebase ID token to `/api/generate`; for Claude, it can also send `providerApiKey` once to persist the key.
+- Every user must supply their own OpenAI and/or Claude/Anthropic API key in the
+  app's AI Settings panel before generating reports. There is no shared/server-side
+  fallback key.
+- Each user's key is saved in Firestore at `users/{uid}/aiProviderKeys/{provider}`
+  (`provider` is `openai` or `anthropic`) after the first generation request made
+  with a key entered in AI Settings. It is only ever used to fulfill that same
+  user's own requests.
+- The browser sends provider/model/prompt and a Firebase ID token to `/api/generate`;
+  it can also send `providerApiKey` to save/update the user's key.
+- Users can clear their saved key at any time with the "Clear Saved Key" button in
+  AI Settings.
 - Templates can store their active phrase handling selection through `selectedPhraseHandlingIds` so each template can remember which phrase rules should be applied during generation.
 - Phrase handling drafts can be generated from an example phrase or rule and then saved for reuse.
 - Update model options or provider list in `js/app.js` as needed.

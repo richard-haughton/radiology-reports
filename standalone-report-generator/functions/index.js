@@ -1,11 +1,7 @@
 const { onRequest } = require('firebase-functions/v2/https');
-const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 
 admin.initializeApp();
-
-const openAiApiKey = defineSecret('OPENAI_API_KEY');
-const claudeApiKey = defineSecret('CLAUDE_API_KEY');
 
 function badRequest(res, message) {
   res.status(400).json({ error: { message } });
@@ -136,11 +132,30 @@ async function saveProviderApiKey(uid, provider, apiKey) {
     }, { merge: true });
 }
 
+// Resolve the API key to use for a given provider/user.
+// Priority: (1) key sent with this request (also saved for future use),
+// (2) previously saved per-user key in Firestore.
+// There is no shared/server-side fallback key — every user must supply their own key.
+async function resolveProviderApiKey(uid, provider, requestApiKey) {
+  if (requestApiKey) {
+    await saveProviderApiKey(uid, provider, requestApiKey).catch((err) => {
+      console.error('Failed to save ' + provider + ' key for user ' + uid + ':', err);
+    });
+    return requestApiKey;
+  }
+
+  try {
+    return await getStoredProviderApiKey(uid, provider);
+  } catch (fsErr) {
+    console.error('Firestore key lookup failed for ' + provider + ':', fsErr);
+    return '';
+  }
+}
+
 exports.aiProxy = onRequest({
   region: 'us-central1',
   timeoutSeconds: 60,
-  cors: true,
-  secrets: [openAiApiKey, claudeApiKey]
+  cors: true
 }, async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
@@ -179,29 +194,11 @@ exports.aiProxy = onRequest({
     let content = '';
 
     if (provider === 'anthropic') {
-      // Key priority: (1) key sent in this request body, (2) CLAUDE_API_KEY Firebase secret, (3) user-stored Firestore key
       const normalizedModel = normalizeAnthropicModel(model);
-      let apiKey = providerApiKey;
-      if (apiKey) {
-        // User provided a key in this request — save it for future Firestore fallback
-        await saveProviderApiKey(decodedUser.uid, 'anthropic', apiKey).catch(() => {});
-      } else {
-        // Prefer the shared Firebase Secret over any previously-stored per-user key
-        apiKey = String(claudeApiKey.value() || '').trim();
-        if (apiKey) {
-          console.log('Using CLAUDE_API_KEY Firebase secret.');
-        } else {
-          // Last resort: user-stored Firestore key (e.g. before secret was configured)
-          try {
-            apiKey = await getStoredProviderApiKey(decodedUser.uid, 'anthropic');
-          } catch (fsErr) {
-            console.error('Firestore key lookup failed:', fsErr);
-          }
-        }
-      }
+      const apiKey = await resolveProviderApiKey(decodedUser.uid, 'anthropic', providerApiKey);
 
       if (!apiKey) {
-        throw new Error('Claude API key is not configured. Save a Claude key in AI Settings or set CLAUDE_API_KEY in Firebase Functions and deploy.');
+        throw new Error('Claude API key is not configured. Enter your Claude API key in AI Settings.');
       }
 
       if (normalizedModel !== model) {
@@ -210,10 +207,12 @@ exports.aiProxy = onRequest({
 
       content = await callAnthropic(normalizedModel, prompt, apiKey);
     } else {
-      const apiKey = String(openAiApiKey.value() || '').trim();
+      const apiKey = await resolveProviderApiKey(decodedUser.uid, 'openai', providerApiKey);
+
       if (!apiKey) {
-        throw new Error('OpenAI API key is not configured on Firebase Functions.');
+        throw new Error('OpenAI API key is not configured. Enter your OpenAI API key in AI Settings.');
       }
+
       content = await callOpenAi(model, prompt, apiKey);
     }
 
