@@ -1127,6 +1127,98 @@ function getReportIndication() {
   return input ? String(input.value || '').trim() : '';
 }
 
+var DATE_TEXT_PATTERN = '(?:\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}' +
+  '|\\d{4}-\\d{1,2}-\\d{1,2}' +
+  '|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{2,4}' +
+  '|\\d{1,2}(?:st|nd|rd|th)?\\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?,?\\s+\\d{2,4})';
+
+var MODALITY_TEXT_PATTERN = '(?:scan|study|exam(?:ination)?|radiograph|film|images?|CTA?|MRI?|MRA|x-?ray|ultrasound|sonogram|mammogram|PET(?:\\/CT)?|angiogram)';
+
+function toPriorReplacer(match, lead) {
+  return lead + ' prior';
+}
+
+function toTrendPriorReplacer(match, adjective, preposition) {
+  return adjective + ' ' + preposition + ' prior';
+}
+
+var PHI_SCRUB_PATTERNS = [
+  {
+    label: 'COMPARISON_DATE',
+    regex: new RegExp('\\b((?:as\\s+)?compar(?:ed|ison)\\s+(?:to|with)|relative\\s+to|versus|vs\\.?)\\s+' +
+      '(?:the\\s+)?(?:prior\\s+)?(?:' + MODALITY_TEXT_PATTERN + '\\s+)?(?:dated\\s+|from\\s+|of\\s+|on\\s+)?' +
+      DATE_TEXT_PATTERN + '\\b', 'gi'),
+    replace: toPriorReplacer
+  },
+  {
+    label: 'COMPARISON_DATE',
+    regex: new RegExp('\\b((?:as\\s+)?compar(?:ed|ison)\\s+(?:to|with)|relative\\s+to|versus|vs\\.?)\\s+' +
+      '(?:the\\s+)?(?:prior\\s+)?' + DATE_TEXT_PATTERN + '(?:\\s+' + MODALITY_TEXT_PATTERN + ')?\\b', 'gi'),
+    replace: toPriorReplacer
+  },
+  {
+    label: 'COMPARISON_DATE',
+    regex: new RegExp('\\b(unchanged|stable|new|increased|decreased|improved|worsened)\\s+(since|from)\\s+' +
+      '(?:the\\s+)?(?:prior\\s+)?(?:' + MODALITY_TEXT_PATTERN + '\\s+)?(?:dated\\s+|of\\s+|on\\s+)?' +
+      DATE_TEXT_PATTERN + '\\b', 'gi'),
+    replace: toTrendPriorReplacer
+  },
+  { label: 'NAME', regex: /\b(Patient(?:'s)?\s*Name|Pt\.?\s*Name)\s*([:#])\s*([^\n,;]+)/gi },
+  { label: 'MRN', regex: /\b(MRN|Medical Record Number|Medical Record No\.?|Med(?:ical)?\s*Rec(?:ord)?\s*#)\s*([:#]?)\s*([A-Za-z0-9-]{4,})/gi },
+  { label: 'ACCESSION', regex: /\b(Accession(?:\s*Number|\s*No\.?)?|Acc\s*#)\s*([:#]?)\s*([A-Za-z0-9-]{4,})/gi },
+  { label: 'DOB', regex: /\b(DOB|Date of Birth)\s*([:]?)\s*([^\n,;]+)/gi },
+  { label: 'SSN', regex: /\b\d{3}-\d{2}-\d{4}\b/g },
+  { label: 'PHONE', regex: /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g },
+  { label: 'EMAIL', regex: /\b[\w.+-]+@[\w-]+\.[A-Za-z]{2,}\b/g },
+  { label: 'ADDRESS', regex: /\b\d{1,6}[ \t]+[A-Za-z0-9.,#-]+(?:[ \t]+[A-Za-z0-9.,#-]+){0,4}[ \t]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Circle|Cir)\.?\b/gi }
+];
+
+// Best-effort removal of patient-identifying text (names, MRN, accession #, DOB, SSN,
+// phone, email, street address) and comparison-study dates (e.g. "compared to scan
+// 10/1/2025" -> "compared to prior") from free-text findings before they leave the
+// browser for a third-party LLM API.
+function scrubPhiFromFindings(text) {
+  var input = String(text || '');
+  var counts = {};
+
+  if (!input) {
+    return { text: input, redactions: [] };
+  }
+
+  PHI_SCRUB_PATTERNS.forEach(function(pattern) {
+    input = input.replace(pattern.regex, function() {
+      var args = Array.prototype.slice.call(arguments, 0, -2);
+      counts[pattern.label] = (counts[pattern.label] || 0) + 1;
+
+      if (pattern.replace) {
+        return pattern.replace.apply(null, args);
+      }
+
+      var groups = args.slice(1);
+      if (groups.length >= 3) {
+        return String(groups[0] || '') + String(groups[1] || '') + ' [REDACTED-' + pattern.label + ']';
+      }
+      return '[REDACTED-' + pattern.label + ']';
+    });
+  });
+
+  var redactions = Object.keys(counts).map(function(label) {
+    return { type: label, count: counts[label] };
+  });
+
+  return { text: input, redactions: redactions };
+}
+
+function notifyIfPhiScrubbed(scrubResult) {
+  if (!scrubResult || !scrubResult.redactions || !scrubResult.redactions.length) return;
+
+  var summary = scrubResult.redactions.map(function(r) {
+    return r.type + ' x' + r.count;
+  }).join(', ');
+
+  showToast('Removed possible patient-identifying data before sending to AI: ' + summary);
+}
+
 async function handleGenerateReport() {
   if (!_uid) return;
 
@@ -1135,7 +1227,9 @@ async function handleGenerateReport() {
 
   if (!findingsEl || !outputEl) return;
 
-  var findings = String(findingsEl.value || '').trim();
+  var findingsScrub = scrubPhiFromFindings(findingsEl.value);
+  notifyIfPhiScrubbed(findingsScrub);
+  var findings = String(findingsScrub.text || '').trim();
   var selectedTemplate = getSelectedTemplate();
   var templateState = getTemplateEditorState();
   var templateText = templateState.body || (selectedTemplate ? selectedTemplate.body : '');
@@ -1239,7 +1333,9 @@ async function handleGenerateReport() {
 
 async function handleApplyDesiredOutputLearning() {
   var outputMode = getReportOutputMode();
-  var findings = String((document.getElementById('report-findings-input') || {}).value || '').trim();
+  var findingsScrub = scrubPhiFromFindings((document.getElementById('report-findings-input') || {}).value);
+  notifyIfPhiScrubbed(findingsScrub);
+  var findings = String(findingsScrub.text || '').trim();
   var outputText = String((document.getElementById('report-output') || {}).value || '').trim();
   var desiredOutputDraft = getDesiredOutputDraft();
 
