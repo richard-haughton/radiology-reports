@@ -154,6 +154,35 @@ body {
   font-size: 1.1rem;
 }
 
+.report-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.report-card-header h2 {
+  margin: 0;
+}
+
+.report-history-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-history-label {
+  font-size: 0.85rem;
+  min-width: 48px;
+  text-align: center;
+}
+
+.report-history-nav .btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .ai-settings-card {
   padding: 0;
 }
@@ -364,6 +393,45 @@ textarea.form-input {
 .phrase-checklist-empty {
   margin: 0;
   font-size: 0.88rem;
+}
+
+.phrase-folder-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.phrase-folder-group + .phrase-folder-group {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.phrase-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 0;
+  color: var(--ink);
+}
+
+.phrase-folder-header input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.phrase-folder-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 22px;
 }
 
 .phrase-handling-note {

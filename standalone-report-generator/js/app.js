@@ -6,9 +6,13 @@ var _unsubscribeTemplates = null;
 var _unsubscribeTemplateFolders = null;
 var _draftTemplatePhraseHandlingIds = null;
 var _phraseHandlings = [];
+var _phraseHandlingFolders = [];
 var _pendingPhraseHandlingSelection = '';
 var _unsubscribePhraseHandlings = null;
+var _unsubscribePhraseHandlingFolders = null;
 var _toastTimer = null;
+var _reportHistory = [];
+var _reportHistoryIndex = -1;
 var DESIRED_OUTPUT_TEXT_KEY = 'reportGenerator.desiredOutputDraft';
 var DESIRED_OUTPUT_ENABLED_KEY = 'reportGenerator.desiredOutputLearningEnabled';
 var ADAPTIVE_GUIDANCE_KEY = 'reportGenerator.adaptiveGuidanceByMode';
@@ -107,6 +111,7 @@ document.addEventListener('DOMContentLoaded', function() {
     subscribeTemplates();
     subscribeTemplateFolders();
     subscribePhraseHandlings();
+    subscribePhraseHandlingFolders();
   });
 });
 
@@ -246,6 +251,15 @@ function bindReportEvents() {
   var copyBtn = document.getElementById('btn-copy-report');
   if (copyBtn) copyBtn.addEventListener('click', handleCopyReportOutput);
 
+  var historyPrevBtn = document.getElementById('btn-report-history-prev');
+  if (historyPrevBtn) historyPrevBtn.addEventListener('click', function () { navigateReportHistory(_reportHistoryIndex - 1); });
+
+  var historyNextBtn = document.getElementById('btn-report-history-next');
+  if (historyNextBtn) historyNextBtn.addEventListener('click', function () { navigateReportHistory(_reportHistoryIndex + 1); });
+
+  var historyLatestBtn = document.getElementById('btn-report-history-latest');
+  if (historyLatestBtn) historyLatestBtn.addEventListener('click', function () { navigateReportHistory(_reportHistory.length - 1); });
+
   var clearSavedKeyBtn = document.getElementById('btn-clear-ai-api-key');
   if (clearSavedKeyBtn) clearSavedKeyBtn.addEventListener('click', handleClearSavedOpenAiKey);
 
@@ -261,6 +275,23 @@ function bindReportEvents() {
       _pendingPhraseHandlingSelection = String(phraseSelect.value || '').trim();
       populatePhraseHandlingEditorFromSelection();
     });
+  }
+
+  var phraseFolderFilterSelect = document.getElementById('phrase-handling-folder-filter-select');
+  if (phraseFolderFilterSelect) {
+    phraseFolderFilterSelect.addEventListener('change', function() {
+      var selected = getSelectedPhraseHandling();
+      var matchesFilter = selected && phraseHandlingMatchesFolderFilter(selected);
+      if (!matchesFilter) {
+        _pendingPhraseHandlingSelection = '';
+      }
+      renderPhraseHandlingOptions();
+    });
+  }
+
+  var createPhraseFolderBtn = document.getElementById('btn-create-phrase-handling-folder');
+  if (createPhraseFolderBtn) {
+    createPhraseFolderBtn.addEventListener('click', handleCreatePhraseHandlingFolder);
   }
 
   var phraseChecklist = document.getElementById('phrase-handling-checklist');
@@ -485,11 +516,16 @@ function teardownUserSubscriptions() {
     _unsubscribePhraseHandlings();
     _unsubscribePhraseHandlings = null;
   }
+  if (_unsubscribePhraseHandlingFolders) {
+    _unsubscribePhraseHandlingFolders();
+    _unsubscribePhraseHandlingFolders = null;
+  }
   _templates = [];
   _templateFolders = [];
   _pendingTemplateSelection = '';
   _draftTemplatePhraseHandlingIds = null;
   _phraseHandlings = [];
+  _phraseHandlingFolders = [];
   _pendingPhraseHandlingSelection = '';
 }
 
@@ -569,6 +605,10 @@ function reportTemplatesRef(uid) {
 
 function templateFoldersRef(uid) {
   return userRef(uid).collection('templateFolders');
+}
+
+function phraseHandlingFoldersRef(uid) {
+  return userRef(uid).collection('phraseHandlingFolders');
 }
 
 function desiredOutputLearningsRef(uid) {
@@ -1117,6 +1157,11 @@ function getFindingsImpressionOnlyEnabled() {
   return !!(checkbox && checkbox.checked);
 }
 
+function getIncludeDifferentialEnabled() {
+  var checkbox = document.getElementById('report-differential-toggle');
+  return !!(checkbox && checkbox.checked);
+}
+
 function getReportStudyType() {
   var input = document.getElementById('report-study-type-input');
   return input ? String(input.value || '').trim() : '';
@@ -1235,6 +1280,7 @@ async function handleGenerateReport() {
   var templateText = templateState.body || (selectedTemplate ? selectedTemplate.body : '');
   var outputMode = getReportOutputMode();
   var chatModeEnabled = getReportChatModeEnabled();
+  var includeDifferential = getIncludeDifferentialEnabled();
   var studyType = getReportStudyType();
   var indication = getReportIndication();
   var desiredOutputDraft = getDesiredOutputDraft();
@@ -1280,6 +1326,7 @@ async function handleGenerateReport() {
       model: getSelectedAiModel(),
       outputMode: outputMode,
       chatModeEnabled: chatModeEnabled,
+      includeDifferential: includeDifferential,
       findings: findings,
       studyType: studyType,
       indication: indication,
@@ -1290,7 +1337,7 @@ async function handleGenerateReport() {
     });
 
     var data = response && response.data ? response.data : {};
-    outputEl.value = formatReportOutputFromData(data, outputMode, templateText);
+    setReportOutputAndRecord(formatReportOutputFromData(data, outputMode, templateText));
 
     if (chatModeEnabled) {
       var initialQuestions = normalizeFollowUpQuestions(data && data.followUpQuestions);
@@ -1305,6 +1352,7 @@ async function handleGenerateReport() {
             promptOverride: buildChatRefinementPrompt({
               findings: findings,
               outputMode: outputMode,
+              includeDifferential: includeDifferential,
               studyType: studyType,
               indication: indication,
               templateText: templateText,
@@ -1316,7 +1364,7 @@ async function handleGenerateReport() {
             })
           });
           var refinementData = refinement && refinement.data ? refinement.data : {};
-          outputEl.value = formatReportOutputFromData(refinementData, outputMode, templateText);
+          setReportOutputAndRecord(formatReportOutputFromData(refinementData, outputMode, templateText));
           setReportStatus('CHAT mode: draft refined with follow-up answers.', false);
           showToast('CHAT refinement complete.');
           return;
@@ -1329,6 +1377,49 @@ async function handleGenerateReport() {
   } catch (err) {
     setReportStatus((err && err.message) || 'Failed to generate report.', true);
   }
+}
+
+// Keeps an in-session history of generated drafts so the user can step back
+// through earlier outputs. Edits made in the textarea are preserved per entry.
+function saveCurrentReportHistoryEdits() {
+  var outputEl = document.getElementById('report-output');
+  if (!outputEl || _reportHistoryIndex < 0 || _reportHistoryIndex >= _reportHistory.length) return;
+  _reportHistory[_reportHistoryIndex] = outputEl.value;
+}
+
+function setReportOutputAndRecord(text) {
+  var outputEl = document.getElementById('report-output');
+  if (!outputEl) return;
+
+  saveCurrentReportHistoryEdits();
+  _reportHistory.push(String(text || ''));
+  _reportHistoryIndex = _reportHistory.length - 1;
+  outputEl.value = _reportHistory[_reportHistoryIndex];
+  updateReportHistoryNav();
+}
+
+function navigateReportHistory(index) {
+  var outputEl = document.getElementById('report-output');
+  if (!outputEl || index < 0 || index >= _reportHistory.length || index === _reportHistoryIndex) return;
+
+  saveCurrentReportHistoryEdits();
+  _reportHistoryIndex = index;
+  outputEl.value = _reportHistory[index];
+  updateReportHistoryNav();
+}
+
+function updateReportHistoryNav() {
+  var prevBtn = document.getElementById('btn-report-history-prev');
+  var nextBtn = document.getElementById('btn-report-history-next');
+  var latestBtn = document.getElementById('btn-report-history-latest');
+  var label = document.getElementById('report-history-label');
+  var total = _reportHistory.length;
+  var isLatest = _reportHistoryIndex === total - 1;
+
+  if (prevBtn) prevBtn.disabled = _reportHistoryIndex <= 0;
+  if (nextBtn) nextBtn.disabled = _reportHistoryIndex < 0 || isLatest;
+  if (latestBtn) latestBtn.style.display = total > 1 && !isLatest ? '' : 'none';
+  if (label) label.textContent = total ? (_reportHistoryIndex + 1) + ' / ' + total : '';
 }
 
 async function handleApplyDesiredOutputLearning() {
@@ -1562,6 +1653,24 @@ function collapseSectionsToFindingsAndImpression(sections, templateText) {
 }
 
 function formatReportOutputFromData(data, outputMode, templateText) {
+  var body = formatReportBodyFromData(data, outputMode, templateText);
+  var differential = formatDifferentialDiagnosis(data && data.differentialDiagnosis);
+  if (!differential) return body;
+  return (body ? body + '\n\n' : '') + 'Differential Diagnosis:\n' + differential;
+}
+
+function formatDifferentialDiagnosis(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(function(item) { return String(item || '').trim().replace(/^\d+[.)]\s*/, ''); })
+      .filter(Boolean)
+      .map(function(item, i) { return (i + 1) + '. ' + item; })
+      .join('\n');
+  }
+  return String(value || '').trim();
+}
+
+function formatReportBodyFromData(data, outputMode, templateText) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
 
@@ -1755,6 +1864,27 @@ function collectFollowUpAnswers(questions) {
   return responses;
 }
 
+function getImpressionStyleRules() {
+  return [
+    'Impression style: be as concise as reasonably possible while still capturing every pertinent, actionable finding - no filler, throat-clearing, or restated finding language.',
+    'Structure as a numbered list (1., 2., 3.), ordered by clinical urgency/impact, with exactly one line per distinct clinical issue; combine related or overlapping findings into a single line instead of listing them separately.',
+    'Each line: a brief summary of the underlying finding (not the full finding text), then the single most likely diagnosis, or a short focused differential (2-3 possibilities max) only when genuinely uncertain, then a recommendation only when clinically indicated (e.g. follow-up imaging interval, correlation, referral).',
+    'Omit the differential clause or the recommendation clause entirely when it adds no clinical value - never pad a line to force a fixed structure.',
+    'Exclude normal, incidental, or already-expected findings from the Impression unless they materially affect management or the leading differential.'
+  ];
+}
+
+function getDifferentialDiagnosisRules() {
+  return [
+    'Also include a top-level "differentialDiagnosis" key in the JSON (alongside the keys in the output shape above): an array of strings, ordered from most to least likely.',
+    'Each differential entry: the diagnosis, then a brief imaging-based rationale citing the supporting or discriminating features from the findings (e.g. "Hepatic hemangioma - peripheral nodular discontinuous enhancement with centripetal fill-in").',
+    'Base the differential on the dominant or most clinically significant abnormality; when there are several unrelated significant abnormalities, prefix each entry with the finding it addresses.',
+    'Include 3-5 entries when the findings support a differential; include fewer when the imaging appearance is near-pathognomonic, and return an empty array when there is no abnormality warranting one.',
+    'Use studyType and indication to weight likelihood. Do not invent findings to support a diagnosis.',
+    'Do not duplicate the differential inside the Impression or other sections; keep it only in differentialDiagnosis.'
+  ];
+}
+
 function buildChatRefinementPrompt(payload) {
   var system = [
     'You are a subspecialty-experienced radiologist refining a report draft using user-provided clarifications.',
@@ -1771,8 +1901,8 @@ function buildChatRefinementPrompt(payload) {
     system += '\nAdaptive guidance from user final drafts for this mode:\n' + adaptiveGuidance;
   }
   if (isImpressionMode(outputMode)) {
-    system += '\nFor impression output, write a concise numbered list (e.g., 1., 2., 3.) with each line containing: key finding summary; most likely diagnosis (or focused differential when uncertain); and actionable recommendation when indicated.';
-    system += '\nPrioritize highest-risk and management-changing abnormalities first, avoid restating full findings, and avoid hedging when a leading diagnosis is supported.';
+    system += '\n' + getImpressionStyleRules().join('\n');
+    system += '\nPrioritize highest-risk and management-changing abnormalities first, and avoid hedging when a leading diagnosis is supported.';
     system += '\nOutput shape must be exactly: {"impression":"..."}.';
     system += '\nReturn only an updated impression based on the initial draft and follow-up clarifications.';
   } else if (outputMode === 'improve-finding') {
@@ -1782,7 +1912,11 @@ function buildChatRefinementPrompt(payload) {
     system += '\nOutput shape must be exactly: {"improvedFinding":"..."}.';
     system += '\nReturn only an updated improved finding based on the initial draft and follow-up clarifications.';
   } else {
+    system += '\n' + getImpressionStyleRules().join('\n');
     system += '\nOutput shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.';
+  }
+  if (payload.includeDifferential) {
+    system += '\n' + getDifferentialDiagnosisRules().join('\n');
   }
 
   var user = {
@@ -1946,17 +2080,149 @@ function subscribePhraseHandlings() {
       data.id = doc.id;
       data.name = String(data.name || '').trim() || 'Untitled';
       data.text = String(data.text || '');
+      data.folder = normalizeTemplateFolderName(data.folder);
       return data;
     }).sort(function(a, b) {
       return a.name.localeCompare(b.name);
     });
 
+    renderPhraseHandlingFolderOptions();
     renderPhraseHandlingOptions();
     syncDraftPhraseHandlingSelection();
     renderPhraseHandlingChecklist();
   }, function(err) {
     console.error('phrase handlings subscription error:', err);
   });
+}
+
+function subscribePhraseHandlingFolders() {
+  if (!_uid) return;
+  if (_unsubscribePhraseHandlingFolders) _unsubscribePhraseHandlingFolders();
+
+  _unsubscribePhraseHandlingFolders = phraseHandlingFoldersRef(_uid).onSnapshot(function(snapshot) {
+    _phraseHandlingFolders = snapshot.docs.map(function(doc) {
+      var data = doc.data() || {};
+      return {
+        id: doc.id,
+        name: normalizeTemplateFolderName(data.name || doc.id)
+      };
+    }).filter(function(folder) {
+      return !!folder.name;
+    }).sort(function(a, b) {
+      return a.name.localeCompare(b.name);
+    });
+
+    renderPhraseHandlingFolderOptions();
+    renderPhraseHandlingOptions();
+    renderPhraseHandlingChecklist();
+  }, function(err) {
+    console.error('phrase handling folders subscription error:', err);
+    setReportStatus('Failed to load phrase handling folders: ' + ((err && err.message) || 'Unknown error.'), true);
+  });
+}
+
+function getAllPhraseHandlingFolderNames() {
+  var seen = {};
+  var names = [];
+
+  _phraseHandlingFolders.forEach(function(folder) {
+    var name = normalizeTemplateFolderName(folder && folder.name);
+    if (!name || seen[name.toLowerCase()]) return;
+    seen[name.toLowerCase()] = true;
+    names.push(name);
+  });
+
+  _phraseHandlings.forEach(function(item) {
+    var name = normalizeTemplateFolderName(item && item.folder);
+    if (!name || seen[name.toLowerCase()]) return;
+    seen[name.toLowerCase()] = true;
+    names.push(name);
+  });
+
+  return names.sort(function(a, b) {
+    return a.localeCompare(b);
+  });
+}
+
+function renderPhraseHandlingFolderOptions() {
+  var editorSelect = document.getElementById('phrase-handling-folder-select');
+  var filterSelect = document.getElementById('phrase-handling-folder-filter-select');
+  var folderNames = getAllPhraseHandlingFolderNames();
+
+  if (editorSelect) {
+    var selectedFolder = normalizeTemplateFolderName(editorSelect.value);
+    var editorHtml = '<option value="">No folder</option>';
+    folderNames.forEach(function(name) {
+      editorHtml += '<option value="' + escapeHtmlAttr(name) + '">' + escapeHtmlText(name) + '</option>';
+    });
+    editorSelect.innerHTML = editorHtml;
+    if (selectedFolder && folderNames.some(function(name) { return name === selectedFolder; })) {
+      editorSelect.value = selectedFolder;
+    } else {
+      editorSelect.value = '';
+    }
+  }
+
+  if (filterSelect) {
+    var selectedFilter = normalizeTemplateFolderName(filterSelect.value);
+    var filterHtml = '<option value="">All folders</option>';
+    folderNames.forEach(function(name) {
+      filterHtml += '<option value="' + escapeHtmlAttr(name) + '">' + escapeHtmlText(name) + '</option>';
+    });
+    filterSelect.innerHTML = filterHtml;
+    if (selectedFilter && folderNames.some(function(name) { return name === selectedFilter; })) {
+      filterSelect.value = selectedFilter;
+    } else {
+      filterSelect.value = '';
+    }
+  }
+}
+
+function getPhraseHandlingFolderFilter() {
+  var select = document.getElementById('phrase-handling-folder-filter-select');
+  return normalizeTemplateFolderName(select ? select.value : '');
+}
+
+function phraseHandlingMatchesFolderFilter(item) {
+  var filter = getPhraseHandlingFolderFilter();
+  if (!filter) return true;
+  return normalizeTemplateFolderName(item && item.folder) === filter;
+}
+
+function getVisiblePhraseHandlings() {
+  return _phraseHandlings.filter(phraseHandlingMatchesFolderFilter);
+}
+
+async function handleCreatePhraseHandlingFolder() {
+  if (!_uid) return;
+
+  var editorSelect = document.getElementById('phrase-handling-folder-select');
+
+  var folderName = normalizeTemplateFolderName(window.prompt('New folder name:') || '');
+  if (!folderName) return;
+
+  var existing = getAllPhraseHandlingFolderNames().find(function(name) {
+    return name.toLowerCase() === folderName.toLowerCase();
+  });
+
+  if (existing) {
+    renderPhraseHandlingFolderOptions();
+    if (editorSelect) editorSelect.value = existing;
+    setReportStatus('Folder already exists. Using existing folder.', false);
+    return;
+  }
+
+  try {
+    await phraseHandlingFoldersRef(_uid).add({
+      name: folderName,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    showToast('Folder created.');
+    setReportStatus('Folder created.', false);
+  } catch (err) {
+    setReportStatus((err && err.message) || 'Failed to create folder.', true);
+  }
 }
 
 function syncDraftPhraseHandlingSelection() {
@@ -1986,13 +2252,14 @@ function renderPhraseHandlingOptions() {
   if (!select) return;
 
   var selected = String(_pendingPhraseHandlingSelection || select.value || '').trim();
+  var visiblePhraseHandlings = getVisiblePhraseHandlings();
   var html = '<option value="">New phrase handling</option>';
-  _phraseHandlings.forEach(function(p) {
+  visiblePhraseHandlings.forEach(function(p) {
     html += '<option value="' + escapeHtmlAttr(p.id) + '">' + escapeHtmlText(p.name) + '</option>';
   });
 
   select.innerHTML = html;
-  if (selected && _phraseHandlings.some(function(p) { return p.id === selected; })) {
+  if (selected && visiblePhraseHandlings.some(function(p) { return p.id === selected; })) {
     select.value = selected;
   } else {
     select.value = '';
@@ -2018,16 +2285,54 @@ function renderPhraseHandlingChecklist() {
     checked[id] = true;
   });
 
-  var html = '';
+  var groups = {};
+  var groupOrder = [];
   _phraseHandlings.forEach(function(p) {
-    var isChecked = !!checked[p.id];
-    html += '<label class="phrase-check-item">'
-      + '<input type="checkbox" class="phrase-check" value="' + escapeHtmlAttr(p.id) + '"' + (isChecked ? ' checked' : '') + ' />'
-      + ' ' + escapeHtmlText(p.name)
-      + '</label>';
+    var folder = normalizeTemplateFolderName(p.folder);
+    if (!groups[folder]) {
+      groups[folder] = [];
+      groupOrder.push(folder);
+    }
+    groups[folder].push(p);
+  });
+
+  groupOrder.sort(function(a, b) {
+    if (!a && b) return 1;
+    if (a && !b) return -1;
+    return a.localeCompare(b);
+  });
+
+  var html = '';
+  groupOrder.forEach(function(folder) {
+    var items = groups[folder];
+    var checkedCount = items.filter(function(p) { return !!checked[p.id]; }).length;
+    var allChecked = items.length > 0 && checkedCount === items.length;
+    var someChecked = checkedCount > 0 && !allChecked;
+
+    html += '<div class="phrase-folder-group">'
+      + '<label class="phrase-folder-header">'
+      + '<input type="checkbox" class="phrase-folder-check"'
+      + (allChecked ? ' checked' : '') + (someChecked ? ' data-indeterminate="1"' : '') + ' />'
+      + ' ' + escapeHtmlText(folder || 'No folder')
+      + '</label>'
+      + '<div class="phrase-folder-items">';
+
+    items.forEach(function(p) {
+      var isChecked = !!checked[p.id];
+      html += '<label class="phrase-check-item">'
+        + '<input type="checkbox" class="phrase-check" value="' + escapeHtmlAttr(p.id) + '"' + (isChecked ? ' checked' : '') + ' />'
+        + ' ' + escapeHtmlText(p.name)
+        + '</label>';
+    });
+
+    html += '</div></div>';
   });
 
   container.innerHTML = html;
+
+  Array.prototype.forEach.call(container.querySelectorAll('input.phrase-folder-check[data-indeterminate="1"]'), function(cb) {
+    cb.indeterminate = true;
+  });
 }
 
 function getSelectedPhraseHandling() {
@@ -2041,25 +2346,30 @@ function populatePhraseHandlingEditorFromSelection() {
   var selected = getSelectedPhraseHandling();
   var nameEl = document.getElementById('phrase-handling-name');
   var textEl = document.getElementById('phrase-handling-text');
+  var folderEl = document.getElementById('phrase-handling-folder-select');
 
   if (!nameEl || !textEl) return;
 
   if (!selected) {
     nameEl.value = '';
     textEl.value = '';
+    if (folderEl) folderEl.value = getPhraseHandlingFolderFilter();
     return;
   }
 
   nameEl.value = String(selected.name || '');
   textEl.value = String(selected.text || '');
+  if (folderEl) folderEl.value = normalizeTemplateFolderName(selected.folder);
 }
 
 function getPhraseHandlingEditorState() {
   var nameEl = document.getElementById('phrase-handling-name');
   var textEl = document.getElementById('phrase-handling-text');
+  var folderEl = document.getElementById('phrase-handling-folder-select');
   return {
     name: nameEl ? String(nameEl.value || '').trim() : '',
-    text: textEl ? String(textEl.value || '').trim() : ''
+    text: textEl ? String(textEl.value || '').trim() : '',
+    folder: normalizeTemplateFolderName(folderEl ? folderEl.value : '')
   };
 }
 
@@ -2079,6 +2389,7 @@ async function handleSavePhraseHandling() {
   var payload = {
     name: name,
     text: state.text,
+    folder: state.folder,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     createdAt: selected && selected.createdAt ? selected.createdAt : firebase.firestore.FieldValue.serverTimestamp()
   };
@@ -2091,6 +2402,8 @@ async function handleSavePhraseHandling() {
       var ref = await phraseHandlingsRef(_uid).add(payload);
       _pendingPhraseHandlingSelection = ref.id;
     }
+    var filterSelect = document.getElementById('phrase-handling-folder-filter-select');
+    if (filterSelect) filterSelect.value = state.folder;
     showToast('Phrase handling saved.');
     setReportStatus('Phrase handling saved.', false);
   } catch (err) {
@@ -2134,7 +2447,22 @@ function getActivePhraseHandlingText() {
 
 function handlePhraseChecklistChange(event) {
   var target = event && event.target ? event.target : null;
-  if (!target || !target.classList || !target.classList.contains('phrase-check')) return;
+  if (!target || !target.classList) return;
+
+  if (target.classList.contains('phrase-folder-check')) {
+    var group = target.closest ? target.closest('.phrase-folder-group') : null;
+    if (group) {
+      Array.prototype.forEach.call(group.querySelectorAll('input.phrase-check'), function(cb) {
+        cb.checked = target.checked;
+      });
+    }
+    target.indeterminate = false;
+    setDraftTemplatePhraseHandlingIds(getSelectedPhraseHandlingIds());
+    persistSelectedPhraseHandlingIdsForCurrentTemplate();
+    return;
+  }
+
+  if (!target.classList.contains('phrase-check')) return;
 
   setDraftTemplatePhraseHandlingIds(getSelectedPhraseHandlingIds());
   persistSelectedPhraseHandlingIdsForCurrentTemplate();
@@ -2157,9 +2485,9 @@ function handleUseTemplateDirect() {
   if (parsedKeys.length) {
     var filteredSections = filterReportSections(parsedSections, getFindingsImpressionOnlyEnabled());
     var formatted = formatSectionsUsingTemplateLayout(filteredSections, body);
-    outputEl.value = formatted || body;
+    setReportOutputAndRecord(formatted || body);
   } else {
-    outputEl.value = body;
+    setReportOutputAndRecord(body);
   }
 
   setReportStatus('Template placed in output. Edit as needed.', false);
@@ -2207,12 +2535,11 @@ function buildReportPrompt(payload) {
 
   if (outputMode === 'impression') {
     instructions.push('Generate only the Impression text directly from findings and prioritize clinically important conclusions.');
-    instructions.push('Write the Impression as a concise radiology-expert numbered list (1., 2., 3.).');
-    instructions.push('Each numbered line must include: key finding summary; most likely diagnosis or a focused differential diagnosis if uncertain; and a recommendation only when clinically indicated.');
-    instructions.push('Order by urgency/clinical impact and keep wording decisive, specific, and actionable.');
+    instructions.push.apply(instructions, getImpressionStyleRules());
+    instructions.push('Keep wording decisive, specific, and actionable.');
   } else if (outputMode === 'improve-impression') {
-    instructions.push('Rewrite the provided impression text for clarity and professionalism without changing meaning.');
-    instructions.push('Return a concise radiology-expert numbered list (1., 2., 3.) where each item states finding summary, diagnosis or focused differential, and recommendation when indicated.');
+    instructions.push('Rewrite the provided impression text for clarity and professionalism without changing its clinical meaning, tightening it wherever it is more verbose than necessary.');
+    instructions.push.apply(instructions, getImpressionStyleRules());
   } else if (outputMode === 'improve-finding') {
     instructions.push('Rewrite the finding text as if a medical intern wrote it, then upgrade it to the voice of an expert subspecialty radiologist.');
     instructions.push('Make a substantive rewrite, not a light polish: correct terminology, tighten structure, clarify anatomy and laterality, and replace vague or awkward wording with standard radiology phrasing while preserving the original clinical meaning.');
@@ -2230,6 +2557,7 @@ function buildReportPrompt(payload) {
     instructions.push('Never replace a section with placeholder text like "Not specifically described", "Not evaluated", or "Not mentioned".');
     instructions.push('If a section has no positive finding, preserve or provide concise anatomy-appropriate pertinent negatives instead.');
     instructions.push('If the template does not contain Impression, include an Impression section at the end.');
+    instructions.push.apply(instructions, getImpressionStyleRules());
   } else {
     instructions.push('Generate a full report from findings and study context.');
     if (outputMode === 'full-keep-findings') {
@@ -2238,6 +2566,7 @@ function buildReportPrompt(payload) {
       instructions.push('Improve language for clarity and professionalism while preserving original clinical meaning.');
     }
     instructions.push('Include pertinent negatives appropriate for the study type when clinically justified.');
+    instructions.push.apply(instructions, getImpressionStyleRules());
   }
 
   if (chatModeEnabled) {
@@ -2259,6 +2588,10 @@ function buildReportPrompt(payload) {
     instructions.push('Output shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.');
   } else {
     instructions.push('Output shape must be exactly: {"sections":{"Findings":"...","Impression":"..."}}.');
+  }
+
+  if (payload.includeDifferential) {
+    instructions.push.apply(instructions, getDifferentialDiagnosisRules());
   }
 
   var context = {

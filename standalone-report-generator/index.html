@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reports</title>
   <meta name="description" content="Standalone report generator for radiology draft creation." />
-  <link rel="stylesheet" href="css/app.css?v=20260605d" />
+  <link rel="stylesheet" href="css/app.css?v=20260829a" />
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="js/firebase-config.js?v=20260610b"></script>
-  <script src="js/app.js?v=20260619b"></script>
+  <script src="js/app.js?v=20260829a"></script>
 </head>
 <body>
   <div id="hipaa-warning" style="background:#b91c1c;color:#fff;font-weight:bold;text-align:center;padding:12px 16px;font-size:1.05rem;letter-spacing:0.01em;">
@@ -87,6 +87,15 @@
 
         <section class="report-card">
           <h2>Phrase Handling</h2>
+
+          <label class="form-label" for="phrase-handling-folder-filter-select">Folder</label>
+          <div class="row-actions row-actions-inline" style="margin-top:0">
+            <select id="phrase-handling-folder-filter-select" class="form-input">
+              <option value="">All folders</option>
+            </select>
+            <button id="btn-create-phrase-handling-folder" class="btn btn-ghost btn-sm" type="button">+ Folder</button>
+          </div>
+
           <label class="form-label" for="phrase-handling-select">Saved phrase handling</label>
           <select id="phrase-handling-select" class="form-input">
             <option value="">New phrase handling</option>
@@ -94,6 +103,11 @@
 
           <label class="form-label" for="phrase-handling-name">Phrase handling name</label>
           <input id="phrase-handling-name" class="form-input" type="text" placeholder="Example: Spine pathology ordering" />
+
+          <label class="form-label" for="phrase-handling-folder-select">Folder</label>
+          <select id="phrase-handling-folder-select" class="form-input">
+            <option value="">No folder</option>
+          </select>
 
           <label class="form-label" for="phrase-handling-text">Instructions</label>
           <textarea id="phrase-handling-text" class="form-input" rows="5" placeholder="Describe how the AI should interpret or organize a phrase when it appears in findings."></textarea>
@@ -104,7 +118,7 @@
           </div>
 
           <label class="form-label">Active phrase handling</label>
-          <p class="muted phrase-handling-note">Selections below are saved with the current template.</p>
+          <p class="muted phrase-handling-note">Selections below are saved with the current template. Check a folder's header to apply or clear everything in it at once.</p>
           <div id="phrase-handling-checklist" class="phrase-checklist">
             <p class="phrase-checklist-empty muted">No phrase handling saved yet.</p>
           </div>
@@ -184,6 +198,11 @@
             Include Findings and Impression only
           </label>
 
+          <label class="form-label form-check-label" for="report-differential-toggle">
+            <input id="report-differential-toggle" type="checkbox" />
+            Include differential diagnosis
+          </label>
+
           <div class="row-2">
             <label class="form-label" for="report-study-type-input">Study type
               <input id="report-study-type-input" class="form-input" type="text" placeholder="Example: CT Abdomen/Pelvis with contrast" />
@@ -206,7 +225,15 @@
         </section>
 
         <section class="report-card">
-          <h2>Draft Report</h2>
+          <div class="report-card-header">
+            <h2>Draft Report</h2>
+            <div class="report-history-nav">
+              <button id="btn-report-history-prev" class="btn btn-ghost btn-sm" type="button" title="Previous draft" aria-label="Previous draft" disabled>&larr;</button>
+              <span id="report-history-label" class="report-history-label muted"></span>
+              <button id="btn-report-history-next" class="btn btn-ghost btn-sm" type="button" title="Next draft" aria-label="Next draft" disabled>&rarr;</button>
+              <button id="btn-report-history-latest" class="btn btn-ghost btn-sm" type="button" title="Return to current draft" style="display:none">Current</button>
+            </div>
+          </div>
           <textarea id="report-output" class="form-input report-output" rows="18" placeholder="Generated report will appear here..."></textarea>
         </section>
 
