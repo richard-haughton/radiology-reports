@@ -1132,6 +1132,7 @@ function getReportOutputMode() {
     value === 'impression' ||
     value === 'improve-impression' ||
     value === 'improve-finding' ||
+    value === 'differential' ||
     value === 'full-keep-findings'
   ) return value;
   return 'full';
@@ -1154,11 +1155,6 @@ function getReportChatModeEnabled() {
 
 function getFindingsImpressionOnlyEnabled() {
   var checkbox = document.getElementById('report-findings-impression-only-toggle');
-  return !!(checkbox && checkbox.checked);
-}
-
-function getIncludeDifferentialEnabled() {
-  var checkbox = document.getElementById('report-differential-toggle');
   return !!(checkbox && checkbox.checked);
 }
 
@@ -1280,7 +1276,6 @@ async function handleGenerateReport() {
   var templateText = templateState.body || (selectedTemplate ? selectedTemplate.body : '');
   var outputMode = getReportOutputMode();
   var chatModeEnabled = getReportChatModeEnabled();
-  var includeDifferential = getIncludeDifferentialEnabled();
   var studyType = getReportStudyType();
   var indication = getReportIndication();
   var desiredOutputDraft = getDesiredOutputDraft();
@@ -1326,7 +1321,6 @@ async function handleGenerateReport() {
       model: getSelectedAiModel(),
       outputMode: outputMode,
       chatModeEnabled: chatModeEnabled,
-      includeDifferential: includeDifferential,
       findings: findings,
       studyType: studyType,
       indication: indication,
@@ -1352,7 +1346,6 @@ async function handleGenerateReport() {
             promptOverride: buildChatRefinementPrompt({
               findings: findings,
               outputMode: outputMode,
-              includeDifferential: includeDifferential,
               studyType: studyType,
               indication: indication,
               templateText: templateText,
@@ -1652,13 +1645,6 @@ function collapseSectionsToFindingsAndImpression(sections, templateText) {
   return result;
 }
 
-function formatReportOutputFromData(data, outputMode, templateText) {
-  var body = formatReportBodyFromData(data, outputMode, templateText);
-  var differential = formatDifferentialDiagnosis(data && data.differentialDiagnosis);
-  if (!differential) return body;
-  return (body ? body + '\n\n' : '') + 'Differential Diagnosis:\n' + differential;
-}
-
 function formatDifferentialDiagnosis(value) {
   if (Array.isArray(value)) {
     return value
@@ -1670,7 +1656,7 @@ function formatDifferentialDiagnosis(value) {
   return String(value || '').trim();
 }
 
-function formatReportBodyFromData(data, outputMode, templateText) {
+function formatReportOutputFromData(data, outputMode, templateText) {
   var mode = String(outputMode || 'full').trim();
   var payload = data && typeof data === 'object' ? data : {};
 
@@ -1680,6 +1666,11 @@ function formatReportBodyFromData(data, outputMode, templateText) {
       impression = String(payload.sections.Impression || payload.sections.impression || '').trim();
     }
     return impression || String(payload.text || '').trim();
+  }
+
+  if (mode === 'differential') {
+    var differential = formatDifferentialDiagnosis(payload.differentialDiagnosis);
+    return differential || String(payload.text || '').trim();
   }
 
   if (mode === 'improve-finding') {
@@ -1876,12 +1867,12 @@ function getImpressionStyleRules() {
 
 function getDifferentialDiagnosisRules() {
   return [
-    'Also include a top-level "differentialDiagnosis" key in the JSON (alongside the keys in the output shape above): an array of strings, ordered from most to least likely.',
-    'Each differential entry: the diagnosis, then a brief imaging-based rationale citing the supporting or discriminating features from the findings (e.g. "Hepatic hemangioma - peripheral nodular discontinuous enhancement with centripetal fill-in").',
-    'Base the differential on the dominant or most clinically significant abnormality; when there are several unrelated significant abnormalities, prefix each entry with the finding it addresses.',
-    'Include 3-5 entries when the findings support a differential; include fewer when the imaging appearance is near-pathognomonic, and return an empty array when there is no abnormality warranting one.',
+    'Generate a differential diagnosis from the findings, ordered from most to least likely.',
+    'Each entry: the diagnosis, then a brief imaging-based rationale citing the supporting or discriminating features from the findings (e.g. "Hepatic hemangioma - peripheral nodular discontinuous enhancement with centripetal fill-in").',
+    'Focus on the dominant or most clinically significant abnormality; when there are several unrelated significant abnormalities, prefix each entry with the finding it addresses.',
+    'Include 3-5 entries when the findings support a differential; include fewer when the imaging appearance is near-pathognomonic.',
     'Use studyType and indication to weight likelihood. Do not invent findings to support a diagnosis.',
-    'Do not duplicate the differential inside the Impression or other sections; keep it only in differentialDiagnosis.'
+    'When it would materially narrow the differential, end the relevant entry with the single most useful next step (e.g. dedicated MRI, prior comparison, specific lab).'
   ];
 }
 
@@ -1905,6 +1896,10 @@ function buildChatRefinementPrompt(payload) {
     system += '\nPrioritize highest-risk and management-changing abnormalities first, and avoid hedging when a leading diagnosis is supported.';
     system += '\nOutput shape must be exactly: {"impression":"..."}.';
     system += '\nReturn only an updated impression based on the initial draft and follow-up clarifications.';
+  } else if (outputMode === 'differential') {
+    system += '\n' + getDifferentialDiagnosisRules().join('\n');
+    system += '\nOutput shape must be exactly: {"differentialDiagnosis":["...","..."]}.';
+    system += '\nReturn only an updated differential based on the initial draft and follow-up clarifications.';
   } else if (outputMode === 'improve-finding') {
     system += '\nTreat the original finding as rough intern-level wording and rewrite it as an expert subspecialty radiologist would present it.';
     system += '\nDo a substantive rewrite that upgrades terminology, structure, and precision while preserving all clinically relevant meaning, anatomy, laterality, and severity.';
@@ -1914,9 +1909,6 @@ function buildChatRefinementPrompt(payload) {
   } else {
     system += '\n' + getImpressionStyleRules().join('\n');
     system += '\nOutput shape must be exactly: {"sections":{"FIELD_NAME":"...","FIELD_NAME":"...","Other":"...","Impression":"..."}}.';
-  }
-  if (payload.includeDifferential) {
-    system += '\n' + getDifferentialDiagnosisRules().join('\n');
   }
 
   var user = {
@@ -2540,6 +2532,8 @@ function buildReportPrompt(payload) {
   } else if (outputMode === 'improve-impression') {
     instructions.push('Rewrite the provided impression text for clarity and professionalism without changing its clinical meaning, tightening it wherever it is more verbose than necessary.');
     instructions.push.apply(instructions, getImpressionStyleRules());
+  } else if (outputMode === 'differential') {
+    instructions.push.apply(instructions, getDifferentialDiagnosisRules());
   } else if (outputMode === 'improve-finding') {
     instructions.push('Rewrite the finding text as if a medical intern wrote it, then upgrade it to the voice of an expert subspecialty radiologist.');
     instructions.push('Make a substantive rewrite, not a light polish: correct terminology, tighten structure, clarify anatomy and laterality, and replace vague or awkward wording with standard radiology phrasing while preserving the original clinical meaning.');
@@ -2572,6 +2566,8 @@ function buildReportPrompt(payload) {
   if (chatModeEnabled) {
     if (isImpressionMode(outputMode)) {
       instructions.push('Output shape must be exactly: {"impression":"...","followUpQuestions":[{"question":"...","rationale":"..."}]}.');
+    } else if (outputMode === 'differential') {
+      instructions.push('Output shape must be exactly: {"differentialDiagnosis":["...","..."],"followUpQuestions":[{"question":"...","rationale":"..."}]}.');
     } else if (outputMode === 'improve-finding') {
       instructions.push('Output shape must be exactly: {"improvedFinding":"...","followUpQuestions":[{"question":"...","rationale":"..."}]}.');
     } else {
@@ -2582,6 +2578,8 @@ function buildReportPrompt(payload) {
     instructions.push('If no high-value clarifications are needed, return an empty followUpQuestions array.');
   } else if (isImpressionMode(outputMode)) {
     instructions.push('Output shape must be exactly: {"impression":"..."}.');
+  } else if (outputMode === 'differential') {
+    instructions.push('Output shape must be exactly: {"differentialDiagnosis":["...","..."]}.');
   } else if (outputMode === 'improve-finding') {
     instructions.push('Output shape must be exactly: {"improvedFinding":"..."}.');
   } else if (hasTemplate) {
@@ -2590,9 +2588,6 @@ function buildReportPrompt(payload) {
     instructions.push('Output shape must be exactly: {"sections":{"Findings":"...","Impression":"..."}}.');
   }
 
-  if (payload.includeDifferential) {
-    instructions.push.apply(instructions, getDifferentialDiagnosisRules());
-  }
 
   var context = {
     outputMode: outputMode,
